@@ -2,7 +2,7 @@
 
 The SDK performs 6-DoF pose tracking based on visual-inertial odometry (VIO), the fusion of camera and IMU data.
 
-# Download
+## Download
 
 The SDK is available for Luxonis OAK-D device family for Python with `pip install spectacularai`. For Intel RealSense D455 & D435i you can download the C++ plugin from the Releases on the right.
 
