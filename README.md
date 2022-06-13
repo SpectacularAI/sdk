@@ -4,7 +4,7 @@ The SDK performs 6-DoF pose tracking based on visual-inertial odometry (VIO), th
 
 ## Download
 
-The SDK is available for Luxonis OAK-D device family for Python with `pip install spectacularai`. The C++ version for OAK-D and additionally for Intel RealSense D455 & D435i you can download from the [Releases](https://github.com/SpectacularAI/sdk/releases) on the right.
+The SDK is available for non-commercial use with Luxonis OAK-D device family for Python with `pip install spectacularai`. The C++ version for OAK-D and additionally for Intel RealSense D455 & D435i you can download from the [Releases](https://github.com/SpectacularAI/sdk/releases) on the right.
 
 For more alternatives (support for other devices), CPU architectures (ARM) and commercial licensing options, please contact us at https://www.spectacularai.com.
 
