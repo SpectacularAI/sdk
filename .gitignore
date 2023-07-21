@@ -1,0 +1,5 @@
+**/__pycache__
+
+integrations/ros2/depthai/python/install/
+integrations/ros2/depthai/python/log/
+integrations/ros2/depthai/python/build/
