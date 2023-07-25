@@ -6,7 +6,13 @@ from launch.conditions import IfCondition
 
 
 def launch_setup(context, *args, **kwargs):
-    spectacularai_node = Node(package='spectacularai_depthai', executable='ros2_node')
+    spectacularai_node = Node(
+        package='spectacularai_depthai',
+        executable='ros2_node',
+        parameters=[
+            { 'recordingFolder': LaunchConfiguration("recordingFolder") },
+        ],
+    )
 
     rviz_node = Node(
         condition=IfCondition(LaunchConfiguration("use_rviz").perform(context)),
@@ -22,7 +28,8 @@ def launch_setup(context, *args, **kwargs):
 def generate_launch_description():
     return LaunchDescription(
         [
-            DeclareLaunchArgument("use_rviz", default_value='True')
+            DeclareLaunchArgument("use_rviz", default_value='True'),
+            DeclareLaunchArgument("recordingFolder", default_value='')
         ] + [
             OpaqueFunction(function=launch_setup)
         ]

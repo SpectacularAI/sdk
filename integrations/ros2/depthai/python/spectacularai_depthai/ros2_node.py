@@ -84,6 +84,7 @@ def toCameraInfoMessage(camera, frame, ts):
 class SpectacularAINode(Node):
     def __init__(self):
         super().__init__("spectacular_ai_node")
+        self.declare_parameter('recordingFolder', rclpy.Parameter.Type.STRING)
 
         self.odometry_publisher = self.create_publisher(PoseStamped, "/slam/odometry", PUBLISHER_QUEUE_SIZE)
         self.keyframe_publisher = self.create_publisher(PoseStamped, "/slam/keyframe", PUBLISHER_QUEUE_SIZE)
@@ -98,7 +99,13 @@ class SpectacularAINode(Node):
         self.pipeline = depthai.Pipeline()
         config = spectacularAI.depthai.Configuration()
 
-        # TODO: Parameterize
+        recordingFolder = str(self.get_parameter('recordingFolder').value)
+        if recordingFolder:
+            self.get_logger().info("Recording: " + recordingFolder)
+            config.recordingFolder = recordingFolder
+            config.recordingOnly = True
+            # End recording with Ctrl-C.
+
         configInternal = {
             "ffmpegVideoCodec": "libx264 -crf 15 -preset ultrafast",
             "computeStereoPointCloud": "true",
