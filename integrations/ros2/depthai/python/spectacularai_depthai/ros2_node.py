@@ -123,6 +123,7 @@ class SpectacularAINode(Node):
 
         config.useFeatureTracker = False
 
+        self.get_logger().info("Starting VIO") # Example of logging.
         self.vio_pipeline = spectacularAI.depthai.Pipeline(self.pipeline, config, self.onMappingOutput)
 
         fps = 15 # 20 Would be better but is slower.
@@ -135,7 +136,8 @@ class SpectacularAINode(Node):
 
 
     def processOutput(self):
-        self.onVioOutput(self.vio_session.waitForOutput())
+        while self.vio_session.hasOutput():
+            self.onVioOutput(self.vio_session.getOutput())
 
 
     def onVioOutput(self, vioOutput):
