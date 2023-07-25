@@ -27,6 +27,8 @@ from builtin_interfaces.msg import Time
 import rclpy
 from rclpy.node import Node
 
+PUBLISHER_QUEUE_SIZE = 10
+
 def toRosTime(timeInSeconds):
     t = Time()
     t.sec = int(timeInSeconds)
@@ -86,13 +88,13 @@ class SpectacularAINode(Node):
         # TODO: Support right camera outputs
         # TODO: Parameterize everything
 
-        self.odometry_publisher = self.create_publisher(PoseStamped, "/slam/odometry", 10)
-        self.keyframe_publisher = self.create_publisher(PoseStamped, "/slam/keyframe", 10)
-        self.left_publisher = self.create_publisher(Image, "/slam/left", 10)
-        self.tf_publisher = self.create_publisher(TFMessage, "/tf", 10)
-        self.point_publisher = self.create_publisher(PointCloud2, "/slam/pointcloud", 10)
-        self.depth_publisher = self.create_publisher(Image, "/slam/depth", 10)
-        self.camera_info_publisher = self.create_publisher(CameraInfo, "/slam/camera_info", 10)
+        self.odometry_publisher = self.create_publisher(PoseStamped, "/slam/odometry", PUBLISHER_QUEUE_SIZE)
+        self.keyframe_publisher = self.create_publisher(PoseStamped, "/slam/keyframe", PUBLISHER_QUEUE_SIZE)
+        self.left_publisher = self.create_publisher(Image, "/slam/left", PUBLISHER_QUEUE_SIZE)
+        self.tf_publisher = self.create_publisher(TFMessage, "/tf", PUBLISHER_QUEUE_SIZE)
+        self.point_publisher = self.create_publisher(PointCloud2, "/slam/pointcloud", PUBLISHER_QUEUE_SIZE)
+        self.depth_publisher = self.create_publisher(Image, "/slam/depth", PUBLISHER_QUEUE_SIZE)
+        self.camera_info_publisher = self.create_publisher(CameraInfo, "/slam/camera_info", PUBLISHER_QUEUE_SIZE)
         self.bridge = CvBridge()
         self.keyframes = {}
         self.latestOutputTimestamp = None # TODO: Remove
