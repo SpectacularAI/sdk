@@ -90,7 +90,6 @@ class SpectacularAINode(Node):
         self.left_publisher = self.create_publisher(Image, "/slam/left", PUBLISHER_QUEUE_SIZE)
         self.tf_publisher = self.create_publisher(TFMessage, "/tf", PUBLISHER_QUEUE_SIZE)
         self.point_publisher = self.create_publisher(PointCloud2, "/slam/pointcloud", PUBLISHER_QUEUE_SIZE)
-        self.depth_publisher = self.create_publisher(Image, "/slam/depth", PUBLISHER_QUEUE_SIZE)
         self.camera_info_publisher = self.create_publisher(CameraInfo, "/slam/camera_info", PUBLISHER_QUEUE_SIZE)
         self.bridge = CvBridge()
         self.keyframes = {}
@@ -146,11 +145,11 @@ class SpectacularAINode(Node):
             keyFrame = output.map.keyFrames.get(frame_id)
             if not keyFrame: continue # Deleted keyframe
             if not keyFrame.pointCloud: continue
-            if not self.has_keyframe(frame_id):
+            if not self.hasKeyframe(frame_id):
                 self.newKeyFrame(frame_id, keyFrame)
 
 
-    def has_keyframe(self, frame_id):
+    def hasKeyframe(self, frame_id):
         return frame_id in self.keyframes
 
 
@@ -176,16 +175,6 @@ class SpectacularAINode(Node):
         camera = keyframe.frameSet.primaryFrame.cameraPose.camera
         info_msg = toCameraInfoMessage(camera, left_frame_bitmap, timestamp)
         self.camera_info_publisher.publish(info_msg)
-
-        # TODO: Fix this
-        # if keyframe.frameSet.depthFrame and keyframe.frameSet.depthFrame.image and keyframe.frameSet.primaryFrame:
-        #     depth_frame = keyframe.frameSet.getAlignedDepthFrame(keyframe.frameSet.primaryFrame)
-        #     if depth_frame:
-        #         depth = depth_frame.image.toArray()
-        #         depth_msg = self.bridge.cv2_to_imgmsg(depth, encoding="mono16")
-        #         depth_msg.header.stamp = timestamp
-        #         depth_msg.header.frame_id = "left_camera"
-        #         self.depth_publisher.publish(depth_msg)
 
         self.publishPointCloud(keyframe, timestamp)
 
