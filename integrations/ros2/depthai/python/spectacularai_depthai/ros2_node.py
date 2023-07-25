@@ -85,9 +85,6 @@ class SpectacularAINode(Node):
     def __init__(self):
         super().__init__("spectacular_ai_node")
 
-        # TODO: Support right camera outputs
-        # TODO: Parameterize everything
-
         self.odometry_publisher = self.create_publisher(PoseStamped, "/slam/odometry", PUBLISHER_QUEUE_SIZE)
         self.keyframe_publisher = self.create_publisher(PoseStamped, "/slam/keyframe", PUBLISHER_QUEUE_SIZE)
         self.left_publisher = self.create_publisher(Image, "/slam/left", PUBLISHER_QUEUE_SIZE)
@@ -97,7 +94,7 @@ class SpectacularAINode(Node):
         self.camera_info_publisher = self.create_publisher(CameraInfo, "/slam/camera_info", PUBLISHER_QUEUE_SIZE)
         self.bridge = CvBridge()
         self.keyframes = {}
-        self.latestOutputTimestamp = None # TODO: Remove
+        self.latestOutputTimestamp = None
 
         self.pipeline = depthai.Pipeline()
         config = spectacularAI.depthai.Configuration()
@@ -137,7 +134,7 @@ class SpectacularAINode(Node):
 
     def onVioOutput(self, vioOutput):
         timestamp = toRosTime(vioOutput.pose.time)
-        self.latestOutputTimestamp = timestamp # TODO: Remove
+        self.latestOutputTimestamp = timestamp
         # cameraPose = vioOutput.getCameraPose(0).pose  # TODO: Use this pose in future if reported as left_camera
         cameraPose = vioOutput.pose
         self.odometry_publisher.publish(toPoseMessage(cameraPose, timestamp))
@@ -165,7 +162,7 @@ class SpectacularAINode(Node):
 
         self.keyframes[frame_id] = True
 
-        # TODO: 1.20.0 and earlier don't support this yet
+        # TODO: spectacularAI 1.20.0 and earlier don't support this yet
         # msg = toPoseMessage(keyframe.frameSet.primaryFrame.cameraPose.pose, timestamp)
         # msg.header.stamp = timestamp
         # self.keyframe_publisher.publish(msg)
@@ -193,6 +190,7 @@ class SpectacularAINode(Node):
         self.publishPointCloud(keyframe, timestamp)
 
 
+    # NOTE This seems a bit slow.
     def publishPointCloud(self, keyframe, timestamp):
         camToWorld = keyframe.frameSet.rgbFrame.cameraPose.getCameraToWorldMatrix()
         positions = keyframe.pointCloud.getPositionData()
