@@ -27,14 +27,14 @@ from builtin_interfaces.msg import Time
 import rclpy
 from rclpy.node import Node
 
-def to_ros_time(time_in_seconds):
+def toRosTime(timeInSeconds):
     t = Time()
-    t.sec = int(time_in_seconds)
-    t.nanosec = int((time_in_seconds % 1) * 1e9)
+    t.sec = int(timeInSeconds)
+    t.nanosec = int((timeInSeconds % 1) * 1e9)
     return t
 
 
-def to_pose_message(cameraPose, ts):
+def toPoseMessage(cameraPose, ts):
     msg = PoseStamped()
     msg.header.stamp = ts
     msg.header.frame_id = "world"
@@ -48,7 +48,7 @@ def to_pose_message(cameraPose, ts):
     return msg
 
 
-def to_tf_message(cameraPose, ts, frame_id):
+def toTfMessage(cameraPose, ts, frame_id):
     msg = TFMessage()
     msg.transforms = []
     transform = TransformStamped()
@@ -66,7 +66,7 @@ def to_tf_message(cameraPose, ts, frame_id):
     return msg
 
 
-def to_camera_info_message(camera, frame, ts):
+def toCameraInfoMessage(camera, frame, ts):
     intrinsic = camera.getIntrinsicMatrix()
     msg = CameraInfo()
     msg.header.stamp = ts
@@ -119,7 +119,6 @@ class SpectacularAINode(Node):
         config.useFeatureTracker = False
 
         self.vio_pipeline = spectacularAI.depthai.Pipeline(self.pipeline, config, self.onMappingOutput)
-        # self.vio_pipeline = spectacularAI.depthai.Pipeline(self.pipeline, config)
 
         fps = 15 # 20 Would be better but is slower.
         self.vio_pipeline.ext.rae.front.colorLeft.setFps(fps)
@@ -135,12 +134,12 @@ class SpectacularAINode(Node):
 
 
     def onVioOutput(self, vioOutput):
-        timestamp = to_ros_time(vioOutput.pose.time)
+        timestamp = toRosTime(vioOutput.pose.time)
         self.latestOutputTimestamp = timestamp # TODO: Remove
         # cameraPose = vioOutput.getCameraPose(0).pose  # TODO: Use this pose in future if reported as left_camera
         cameraPose = vioOutput.pose
-        self.odometry_publisher.publish(to_pose_message(cameraPose, timestamp))
-        self.tf_publisher.publish(to_tf_message(cameraPose, timestamp, "left_camera"))
+        self.odometry_publisher.publish(toPoseMessage(cameraPose, timestamp))
+        self.tf_publisher.publish(toTfMessage(cameraPose, timestamp, "left_camera"))
 
 
     def onMappingOutput(self, output):
@@ -160,12 +159,12 @@ class SpectacularAINode(Node):
         # TODO: keyframe.frameSet.primaryFrame.cameraPose.pose is not available in SDK 1.20.0 and earlier, use it once fix is out
         if not self.latestOutputTimestamp: return
         timestamp = self.latestOutputTimestamp
-        #timestamp = to_ros_time(keyframe.frameSet.primaryFrame.cameraPose.pose.time) <- This should be used in future
+        #timestamp = toRosTime(keyframe.frameSet.primaryFrame.cameraPose.pose.time) <- This should be used in future
 
         self.keyframes[frame_id] = True
 
         # TODO: 1.20.0 and earlier don't support this yet
-        # msg = to_pose_message(keyframe.frameSet.primaryFrame.cameraPose.pose, timestamp)
+        # msg = toPoseMessage(keyframe.frameSet.primaryFrame.cameraPose.pose, timestamp)
         # msg.header.stamp = timestamp
         # self.keyframe_publisher.publish(msg)
 
@@ -176,7 +175,7 @@ class SpectacularAINode(Node):
         self.left_publisher.publish(left_msg)
 
         camera = keyframe.frameSet.primaryFrame.cameraPose.camera
-        info_msg = to_camera_info_message(camera, left_frame_bitmap, timestamp)
+        info_msg = toCameraInfoMessage(camera, left_frame_bitmap, timestamp)
         self.camera_info_publisher.publish(info_msg)
 
         # TODO: Fix this
