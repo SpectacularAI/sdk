@@ -102,12 +102,12 @@ class SpectacularAINode(Node):
 
         # TODO: Parameterize
         configInternal = {
+            "ffmpegVideoCodec": "libx264 -crf 15 -preset ultrafast",
             "computeStereoPointCloud": "true",
             "computeDenseStereoDepthKeyFramesOnly": "true",
-            # "alreadyRectified": "true",
+            "stereoPointCloudStride": "20", # The point cloud handling in this script seems slow, compute a sparse cloud.
+            "alreadyRectified": "true",
             "isRae": "true",
-            # "maxTracks": "100",
-            # "cameraTrailLength": "12"
         }
         config.fastVio = True
         config.internalParameters = configInternal
@@ -117,12 +117,11 @@ class SpectacularAINode(Node):
         config.silenceUsbWarnings = True
 
         config.useFeatureTracker = False
-        config.useGrayDepth = True
 
         self.vio_pipeline = spectacularAI.depthai.Pipeline(self.pipeline, config, self.onMappingOutput)
         # self.vio_pipeline = spectacularAI.depthai.Pipeline(self.pipeline, config)
 
-        fps = 20
+        fps = 15 # 20 Would be better but is slower.
         self.vio_pipeline.ext.rae.front.colorLeft.setFps(fps)
         self.vio_pipeline.ext.rae.front.colorRight.setFps(fps)
 
