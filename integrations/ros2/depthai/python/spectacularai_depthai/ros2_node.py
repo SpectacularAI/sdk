@@ -106,30 +106,16 @@ class SpectacularAINode(Node):
             config.recordingOnly = True
             # End recording with Ctrl-C.
 
-        configInternal = {
+        config.internalParameters = {
             "ffmpegVideoCodec": "libx264 -crf 15 -preset ultrafast",
             "computeStereoPointCloud": "true",
             "computeDenseStereoDepthKeyFramesOnly": "true",
-            "stereoPointCloudStride": "20", # The point cloud handling in this script seems slow, compute a sparse cloud.
-            "alreadyRectified": "true",
-            "isRae": "true",
+            "alreadyRectified": "true"
         }
-        config.fastVio = True
-        config.internalParameters = configInternal
         config.useSlam = True
-
-        config.ensureSufficientUsbSpeed = False
-        config.silenceUsbWarnings = True
-
-        config.useFeatureTracker = False
 
         self.get_logger().info("Starting VIO") # Example of logging.
         self.vio_pipeline = spectacularAI.depthai.Pipeline(self.pipeline, config, self.onMappingOutput)
-
-        fps = 15 # 20 Would be better but is slower.
-        self.vio_pipeline.ext.rae.front.colorLeft.setFps(fps)
-        self.vio_pipeline.ext.rae.front.colorRight.setFps(fps)
-
         self.device = depthai.Device(self.pipeline)
         self.vio_session = self.vio_pipeline.startSession(self.device)
         self.timer = self.create_timer(0, self.processOutput)
@@ -141,10 +127,9 @@ class SpectacularAINode(Node):
 
 
     def onVioOutput(self, vioOutput):
-        timestamp = toRosTime(vioOutput.pose.time)
+        timestamp = toRosTime(vioOutput.getCameraPose(0).pose.time)
         self.latestOutputTimestamp = timestamp
-        # cameraPose = vioOutput.getCameraPose(0).pose  # TODO: Use this pose in future if reported as left_camera
-        cameraPose = vioOutput.pose
+        cameraPose = vioOutput.getCameraPose(0).pose
         self.odometry_publisher.publish(toPoseMessage(cameraPose, timestamp))
         self.tf_publisher.publish(toTfMessage(cameraPose, timestamp, "left_camera"))
 
@@ -163,17 +148,12 @@ class SpectacularAINode(Node):
 
 
     def newKeyFrame(self, frame_id, keyframe):
-        # TODO: keyframe.frameSet.primaryFrame.cameraPose.pose is not available in SDK 1.20.0 and earlier, use it once fix is out
         if not self.latestOutputTimestamp: return
-        timestamp = self.latestOutputTimestamp
-        #timestamp = toRosTime(keyframe.frameSet.primaryFrame.cameraPose.pose.time) <- This should be used in future
-
+        timestamp = toRosTime(keyframe.frameSet.primaryFrame.cameraPose.pose.time)
         self.keyframes[frame_id] = True
-
-        # TODO: spectacularAI 1.20.0 and earlier don't support this yet
-        # msg = toPoseMessage(keyframe.frameSet.primaryFrame.cameraPose.pose, timestamp)
-        # msg.header.stamp = timestamp
-        # self.keyframe_publisher.publish(msg)
+        msg = toPoseMessage(keyframe.frameSet.primaryFrame.cameraPose.pose, timestamp)
+        msg.header.stamp = timestamp
+        self.keyframe_publisher.publish(msg)
 
         left_frame_bitmap = keyframe.frameSet.primaryFrame.image.toArray()
         left_msg = self.bridge.cv2_to_imgmsg(left_frame_bitmap, encoding="mono8")
