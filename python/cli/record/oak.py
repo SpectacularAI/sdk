@@ -228,7 +228,7 @@ def record(args):
     if args.no_preview:
         plotter = None
     else:
-        from visualization.vio_visu import make_plotter
+        from spectacularAI.cli.visualization.vio_visu import make_plotter
         import matplotlib.pyplot as plt
         plotter, anim = make_plotter()
 

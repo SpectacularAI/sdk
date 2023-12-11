@@ -474,7 +474,7 @@ def process(args):
         config['stereoPointCloudStride'] = 30
 
     if args.preview3d:
-        from visualization.visualizer import Visualizer
+        from spectacularAI.cli.visualization.visualizer import Visualizer
         visualizer = Visualizer()
 
     with open(tmp_input + "/vio_config.yaml", 'wt') as f:
