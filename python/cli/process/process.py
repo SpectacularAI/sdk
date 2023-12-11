@@ -516,7 +516,7 @@ def process(args):
         print(f'output written to {args.output}', flush=True)
 
 if __name__ == '__main__':
-    def parse_args(args):
+    def parse_args():
         import argparse
         parser = argparse.ArgumentParser(description=__doc__.strip())
         parser = define_args(parser)

@@ -243,7 +243,7 @@ def record(args):
     reader_thread.join()
 
 if __name__ == '__main__':
-    def parse_args(args):
+    def parse_args():
         import argparse
         parser = argparse.ArgumentParser(description=__doc__.strip())
         parser = define_args(parser)
