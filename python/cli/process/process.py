@@ -259,7 +259,8 @@ def process(args):
                 fileName = f"{args.output}/tmp/frame_{frameId:05}.{args.image_format}"
                 cv2.imwrite(fileName, bgrImage)
 
-                if frameSet.depthFrame.image is not None and not useMono:
+                # Legacy: support SDK versions which also produced images where frameSet.depthFrame.image was None
+                if frameSet.depthFrame is not None and frameSet.depthFrame.image is not None and not useMono:
                     alignedDepth = frameSet.getAlignedDepthFrame(undistortedFrame)
                     depthData = alignedDepth.image.toArray()
                     depthFrameName = f"{args.output}/tmp/depth_{frameId:05}.png"
