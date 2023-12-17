@@ -89,6 +89,9 @@ class VisualizerArgs:
     # Pose trail
     poseTrailLength = None # Number of frames in pose trail (unlimited=None)
 
+    # Sparse point cloud (yes, no, auto = only if dense point clouds do not exist)
+    showSparsePointCloud = 'auto'
+
     # Grid
     gridRadius = 20 # Grid side length is 2*n
     gridCellLength = 1.0 # Length of single cell (m)
@@ -161,6 +164,7 @@ class Visualizer:
             skipPointsWithoutColor=args.skipPointsWithoutColor,
             visualizationScale=args.visualizationScale,
             renderPointCloud=args.showPointCloud,
+            renderSparsePointCloud=args.showSparsePointCloud,
             renderKeyFrames=args.showKeyFrames,
             renderMesh=args.showMesh)
         self.poseTrail = PoseTrailRenderer(maxLength=args.poseTrailLength)

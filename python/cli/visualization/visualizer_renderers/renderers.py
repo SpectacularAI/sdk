@@ -74,10 +74,15 @@ class MapRenderer:
             visualizationScale=20,
             skipPointsWithoutColor=False,
             renderPointCloud=True,
+            renderSparsePointCloud='auto',
             renderKeyFrames=True,
             renderMesh=False):
         self.keyFrameCameraToWorldMatrices = {}
         self.pointCloudRenderers = {}
+        self.sparseMapPointsPerKeyFrame = {}
+        self.sparseMapPointsById = {}
+        self.sparsePointCloudRenderer = None
+        self.renderSparsePointCloud = renderSparsePointCloud
         self.keyFrameRenderer = KeyFrameRenderer()
         # self.meshRenderer = MeshRenderer() # TODO: fix
 
@@ -97,6 +102,8 @@ class MapRenderer:
         self.colorMode = colorMode
 
     def onMappingOutput(self, mapperOutput):
+        anySparseUpdated = False
+
         for kfId in mapperOutput.updatedKeyFrames:
             keyFrame = mapperOutput.map.keyFrames.get(kfId)
 
@@ -105,12 +112,48 @@ class MapRenderer:
                 if kfId in self.pointCloudRenderers:
                     del self.pointCloudRenderers[kfId]
                     del self.keyFrameCameraToWorldMatrices[kfId]
+                if kfId in self.sparseMapPointsPerKeyFrame:
+                    for mpId in self.sparseMapPointsPerKeyFrame[kfId]:
+                        # TODO: removes some points that remain in the map,
+                        # but OK for this visualization
+                        self.sparseMapPointsById.pop(mpId, None)
+                    del self.sparseMapPointsPerKeyFrame[kfId]
                 continue
+
+            primaryFrame = keyFrame.frameSet.primaryFrame
+            if self.renderSparsePointCloud:
+                if kfId in self.sparseMapPointsPerKeyFrame:
+                    for mpId in self.sparseMapPointsPerKeyFrame[kfId]:
+                        self.sparseMapPointsById.pop(mpId, None)
+                        anySparseUpdated = True
+                    del self.sparseMapPointsPerKeyFrame[kfId]
+
+                sparseFeatures = None
+                if hasattr(primaryFrame, 'sparseFeatures'):
+                    sparseFeatures = primaryFrame.sparseFeatures
+
+                    newIds = []
+                    for mpObs in sparseFeatures:
+                        self.sparseMapPointsById[mpObs.id] = [mpObs.position.x, mpObs.position.y, mpObs.position.z]
+                        newIds.append(mpObs.id)
+                        anySparseUpdated = True
+
+                    if len(newIds) > 0:
+                        self.sparseMapPointsPerKeyFrame[kfId] = newIds
+
+                # else: tolerate older SDK versions
+
+            self.keyFrameCameraToWorldMatrices[kfId] = primaryFrame.cameraPose.getCameraToWorldMatrix()
 
             if not keyFrame.pointCloud: continue
             if keyFrame.pointCloud.empty(): continue
 
-            self.keyFrameCameraToWorldMatrices[kfId] = keyFrame.frameSet.primaryFrame.cameraPose.getCameraToWorldMatrix()
+            if self.renderSparsePointCloud == 'auto':
+                self.renderSparsePointCloud = False
+                self.sparseMapPointsPerKeyFrame = {}
+                self.sparseMapPointsById = {}
+                self.sparsePointCloudRenderer = None
+
             if kfId not in self.pointCloudRenderers:
                 pc = keyFrame.pointCloud
                 positions = pc.getPositionData()
@@ -130,6 +173,21 @@ class MapRenderer:
                         pointCloud=pc,
                         maxZ=self.maxZ,
                         colorMapScale=20.0/self.visualizationScale)
+
+        if anySparseUpdated:
+            class SparsePointCloud: pass
+            sparsePointCloud = SparsePointCloud()
+            sparsePointCloud.vertices = np.ravel(list(self.sparseMapPointsById.values()))
+            sparsePointCloud.colors = None
+            sparsePointCloud.normals = None
+
+            SPARSE_POINT_SIZE = 2
+            self.sparsePointCloudRenderer = PointCloudRenderer(
+                pointSize=SPARSE_POINT_SIZE,
+                opacity=0.3,
+                pointCloud=sparsePointCloud,
+                maxZ=self.maxZ,
+                colorMapScale=20.0/self.visualizationScale)
 
     def setRenderPointCloud(self, render):
         self.renderPointCloud = render
@@ -156,6 +214,10 @@ class MapRenderer:
         n = len(self.pointCloudRenderers) if self.maxRenderKeyFrames is None else self.maxRenderKeyFrames
 
         def renderPointCloud():
+            if self.sparsePointCloudRenderer is not None:
+                self.sparsePointCloudRenderer.setCameraPositionWorld(np.array([cameraPositionWorld.x, cameraPositionWorld.y, cameraPositionWorld.z]))
+                self.sparsePointCloudRenderer.render(np.eye(4), viewMatrix, projectionMatrix)
+
             i = 0
             for kfId in reversed(self.pointCloudRenderers.keys()):
                 if i >= n: break
