@@ -109,9 +109,8 @@ class MapRenderer:
 
             # Remove deleted key frames from visualisation
             if not keyFrame:
-                if kfId in self.pointCloudRenderers:
-                    del self.pointCloudRenderers[kfId]
-                    del self.keyFrameCameraToWorldMatrices[kfId]
+                self.keyFrameCameraToWorldMatrices.pop(kfId, None)
+                self.pointCloudRenderers.pop(kfId, None)
                 if kfId in self.sparseMapPointsPerKeyFrame:
                     for mpId in self.sparseMapPointsPerKeyFrame[kfId]:
                         # TODO: removes some points that remain in the map,
