@@ -34,19 +34,20 @@ endif()
 
 set(TOOL_LIBS
   k4a::k4a
-  spectacularAI::k4aPlugin)
+  spectacularAI::k4aPlugin
+  Threads::Threads)
 
 # enables searching for dynamic libraries from the relative path ../lib
 if(NOT MSVC)
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath='$ORIGIN/../lib:$ORIGIN/../lib/3rdparty'")
 endif()
 
-add_executable(sai-k4a-record record.cpp)
-target_link_libraries(sai-k4a-record ${TOOL_LIBS})
+add_executable(sai-record-k4a record.cpp)
+target_link_libraries(sai-record-k4a ${TOOL_LIBS})
 
 if(MSVC)
-  add_custom_command(TARGET sai-k4a-record POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:sai-k4a-record> $<TARGET_FILE_DIR:sai-k4a-record>
+  add_custom_command(TARGET sai-record-k4a POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:sai-record-k4a> $<TARGET_FILE_DIR:sai-record-k4a>
     COMMAND_EXPAND_LISTS
   )
 endif()

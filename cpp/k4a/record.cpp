@@ -20,8 +20,8 @@ void showUsage() {
         << "  --vio_only (-useSlam=false)" << std::endl
         << "  --exposure <microseconds>" << std::endl
         << "  --whitebalance <kelvins>" << std::endl
-        << "  --gain [0-255]"  << std::endl
-        << "  --brightness [0-255]" << std::endl
+        << "  --gain <0-255>"  << std::endl
+        << "  --brightness <0-255>" << std::endl
         << "  --print" << std::endl
         << std::endl;
 }
@@ -79,8 +79,10 @@ int main(int argc, char *argv[]) {
     }
 
     // Require recording folder when using recording only mode.
-    if (config.recordingOnly && config.recordingFolder.empty())
-        fatal_error("Record only but recording folder is not set!");
+    if (config.recordingOnly && config.recordingFolder.empty()) {
+        std::cerr << "Record only but recording folder is not set!" << std::endl;
+        return EXIT_FAILURE;
+    }
 
     // In monocular mode, disable depth camera.
     if (!config.useStereo) depthMode = K4A_DEPTH_MODE_OFF;

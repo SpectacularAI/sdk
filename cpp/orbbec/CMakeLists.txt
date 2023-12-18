@@ -33,7 +33,8 @@ endif()
 
 set(TOOL_LIBS
   ${OrbbecSDK_LIBS}
-  spectacularAI::orbbecPlugin)
+  spectacularAI::orbbecPlugin
+  Threads::Threads)
 
 # enables searching for dynamic libraries from the relative path ../lib
 if(NOT MSVC)

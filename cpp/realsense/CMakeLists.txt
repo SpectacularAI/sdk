@@ -15,12 +15,14 @@ else()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
 endif()
 
+find_package(Threads REQUIRED)
 find_package(realsense2 REQUIRED)
 find_package(spectacularAI_realsensePlugin REQUIRED)
 
 set(TOOL_LIBS
   realsense2::realsense2
-  spectacularAI::realsensePlugin)
+  spectacularAI::realsensePlugin
+  Threads::Threads)
 
 # enables searching for dynamic libraries from the relative path ../lib
 if(NOT MSVC)

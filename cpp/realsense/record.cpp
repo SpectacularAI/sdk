@@ -1,3 +1,6 @@
+#include <atomic>
+#include <thread>
+#include <vector>
 #include <iostream>
 #include <librealsense2/rs.hpp>
 #include <spectacularAI/realsense/plugin.hpp>
@@ -17,6 +20,7 @@ void showUsage() {
         << "  --saturation <value>" << std::endl
         << "  --sharpness <value>" << std::endl
         << "  --white_balance <value>" << std::endl
+        << "  --print" << std::endl
         << std::endl;
 }
 
@@ -35,6 +39,7 @@ struct ColorCameraConfig {
 int main(int argc, char** argv) {
     spectacularAI::rsPlugin::Configuration config;
     ColorCameraConfig colorConfig;
+    bool print = false;
 
     std::vector<std::string> arguments(argv, argv + argc);
     for (size_t i = 1; i < arguments.size(); ++i) {
@@ -63,6 +68,8 @@ int main(int argc, char** argv) {
             colorConfig.sharpness = std::stoi(arguments.at(++i));
         else if (argument == "--white_balance")
             colorConfig.whiteBalance = std::stoi(arguments.at(++i));
+        else if (argument == "--print")
+            print = true;
         else if (argument == "--help" || argument == "-h") {
             showUsage();
             return EXIT_SUCCESS;
@@ -112,13 +119,31 @@ int main(int argc, char** argv) {
     // Start pipeline
     rs2::config rsConfig;
     vioPipeline.configureStreams(rsConfig);
-    auto vioSession = vioPipeline.startSession(rsConfig);
+    auto session = vioPipeline.startSession(rsConfig);
 
-    std::cout << "Recording, use Ctrl+C to stop" << std::endl;
+    std::atomic<bool> shouldQuit(false);
+    std::thread inputThread([&]() {
+        std::cout << "Press Enter to quit." << std::endl << std::endl;
+        getchar();
+        shouldQuit = true;
+    });
 
-    while (true) {
-        vioSession->waitForOutput();
+    while (!shouldQuit) {
+        if (session->hasOutput()) {
+            auto out = session->getOutput();
+            if (print) {
+                std::cout << "Vio API pose: " << out->pose.time << ", " << out->pose.position.x
+                          << ", " << out->pose.position.y << ", " << out->pose.position.z << ", "
+                          << out->pose.orientation.x << ", " << out->pose.orientation.y << ", "
+                          << out->pose.orientation.z << ", " << out->pose.orientation.w
+                          << std::endl;
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
+
+    std::cout << "Exiting." << std::endl;
+    if (shouldQuit) inputThread.join();
 
     return 0;
 }
