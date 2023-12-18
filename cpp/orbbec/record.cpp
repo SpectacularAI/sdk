@@ -86,11 +86,17 @@ int main(int argc, char *argv[]) {
     std::vector<std::string> arguments(argv, argv + argc);
     ob::Context::setLoggerSeverity(OB_LOG_SEVERITY_OFF);
 
-    // Create OrbbecSDK pipeline (with default device).
-    ob::Pipeline obPipeline;
+    std::shared_ptr<ob::Pipeline> obPipeline;
+    try {
+        // Create OrbbecSDK pipeline (with default device).
+        obPipeline = std::make_shared<ob::Pipeline>();
+    } catch(ob::Error &e) {
+        std::cerr << "Make sure your Orbbec device is connected!" << std::endl;
+        return EXIT_FAILURE;
+    }
 
     // Create Spectacular AI orbbec plugin configuration (depends on device type).
-    spectacularAI::orbbecPlugin::Configuration config(obPipeline);
+    spectacularAI::orbbecPlugin::Configuration config(*obPipeline);
 
     int exposureValue = -1;
     int whiteBalanceKelvins = -1;
@@ -140,9 +146,9 @@ int main(int argc, char *argv[]) {
     }
 
     // Create vio pipeline using the config & setup orbbec pipeline
-    spectacularAI::orbbecPlugin::Pipeline vioPipeline(obPipeline, config);
+    spectacularAI::orbbecPlugin::Pipeline vioPipeline(*obPipeline, config);
 
-    auto device = obPipeline.getDevice();
+    auto device = obPipeline->getDevice();
     if (exposureValue >= 0) {
         if (!setCameraProperty(device, OB_PROP_COLOR_AUTO_EXPOSURE_BOOL, false, "OB_PROP_COLOR_AUTO_EXPOSURE_BOOL")) return EXIT_FAILURE;
         if (!setCameraProperty(device, OB_PROP_COLOR_EXPOSURE_INT, exposureValue, "OB_PROP_COLOR_EXPOSURE_INT")) return EXIT_FAILURE;
