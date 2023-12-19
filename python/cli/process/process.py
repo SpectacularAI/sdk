@@ -14,7 +14,7 @@ def define_args(parser):
     parser.add_argument("--distance_quantile", help="Max point distance filter quantile (0 = disabled)", type=float, default=0.99)
     parser.add_argument("--key_frame_distance", help="Minimum distance between keyframes (meters)", type=float, default=0.05)
     parser.add_argument('--no_icp', action='store_true')
-    parser.add_argument('--device_preset', choices=['none', 'oak-d', 'k4a', 'realsense', 'android-tof', 'ios-tof', 'orbbec-astra2', 'orbbec-femto-mega'], help="Automatically detected in most cases")
+    parser.add_argument('--device_preset', choices=['none', 'oak-d', 'k4a', 'realsense', 'android-tof', 'ios-tof', 'orbbec-astra2', 'orbbec-femto'], help="Automatically detected in most cases")
     parser.add_argument('--fast', action='store_true', help='Fast but lower quality settings')
     parser.add_argument('--mono', action='store_true', help='Monocular mode: disable ToF and stereo data')
     parser.add_argument('--image_format', type=str, default='jpg', help="Color image format (use 'png' for top quality)")
@@ -415,7 +415,7 @@ def process(args):
                             if "k4a" in line: device = "k4a"
                             if "realsense" in line: device = "realsense"
                             if "orbbec-astra2" in line: device = "orbbec-astra2"
-                            if "orbbec-femto-mega" in line: device = "orbbec-femto-mega"
+                            if "orbbec-femto" in line: device = "orbbec-femto"
                         if device: break
         return (device, cameras)
 
