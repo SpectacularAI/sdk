@@ -277,18 +277,21 @@ def process(args):
                 if intrinsics is None: intrinsics = undistortedFrame.cameraPose.camera.getIntrinsicMatrix()
                 img = undistortedFrame.image.toArray()
 
-                # Find colors for sparse features
-                for mpObs in targetFrame.sparseFeatures:
-                    if mpObs.id not in sparsePointColors:
-                        rgb = list(img[
-                            np.clip(round(mpObs.pixelCoordinates.y), 0, img.shape[0]-1),
-                            np.clip(round(mpObs.pixelCoordinates.x), 0, img.shape[1]-1),
-                            ...].view(np.uint8))
-                        sparsePointColors[mpObs.id] = rgb
-
                 bgrImage = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
                 fileName = f"{args.output}/tmp/frame_{frameId:05}.{args.image_format}"
                 cv2.imwrite(fileName, bgrImage)
+
+                # Find colors for sparse features
+                SHOW_FEATURE_MARKERS = True
+                for mpObs in undistortedFrame.sparseFeatures:
+                    if mpObs.id not in sparsePointColors:
+                        px = np.clip(round(mpObs.pixelCoordinates.x), 0, img.shape[1]-1)
+                        py = np.clip(round(mpObs.pixelCoordinates.y), 0, img.shape[0]-1)
+                        rgb = list(img[py, px, ...].view(np.uint8))
+                        sparsePointColors[mpObs.id] = rgb
+                        if args.preview and SHOW_FEATURE_MARKERS:
+                            MARKER_COLOR = (0, 255, 0)
+                            cv2.circle(bgrImage, (px, py), 5, MARKER_COLOR, thickness=1)
 
                 # Legacy: support SDK versions which also produced images where frameSet.depthFrame.image was None
                 if frameSet.depthFrame is not None and frameSet.depthFrame.image is not None and not useMono:
