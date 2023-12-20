@@ -35,11 +35,12 @@ def process(args):
     import shutil
     import numpy as np
     import pandas as pd
-    from scipy.spatial import KDTree
+    from collections import OrderedDict
 
     useMono = None
 
     def interpolate_missing_properties(df_source, df_query, k_nearest=3):
+        from scipy.spatial import KDTree
         xyz = list('xyz')
 
         tree = KDTree(df_source[xyz].values)
@@ -57,6 +58,7 @@ def process(args):
         return df_result
 
     def exclude_points(df_source, df_exclude, radius):
+        from scipy.spatial import KDTree
         xyz = list('xyz')
         tree = KDTree(df_exclude[xyz].values)
         ii = tree.query_ball_point(df_source[xyz], r=radius, return_length=True)
@@ -117,12 +119,13 @@ def process(args):
         return value
 
     # TODO: don't use "Taichi" as the intermediate format
-    def convert_json_taichi_to_colmap(pose_data, points_df, nerfstudio_fake_obs=True):
+    def convert_json_taichi_to_colmap(pose_data, points_df, sparse_observations, nerfstudio_fake_obs=True):
         from scipy.spatial.transform import Rotation as R
 
         images = []
         cameras = []
         camera_id = 0
+        max_pt_id = 0
         for image_id, c in enumerate(pose_data):
             k = c['camera_intrinsics']
             mat = np.linalg.inv(np.array(c['T_pointcloud_camera']))
@@ -132,7 +135,11 @@ def process(args):
             images.append([image_id] + list(q) + list(p) + [camera_id, os.path.split(c['image_path'])[-1]])
 
             points = []
-            if nerfstudio_fake_obs:
+            for pt in sparse_observations.get(image_id, {}):
+                max_pt_id = max(max_pt_id, pt.id)
+                points.extend([pt.pixelCoordinates.x, pt.pixelCoordinates.y, pt.id])
+
+            if nerfstudio_fake_obs and len(points) == 0:
                 points = [100,100,0,200,200,1] # NeRFstudio loader will crash without this
 
             images.append(points)
@@ -151,9 +158,18 @@ def process(args):
                 ]]
 
         points = []
-        for point_id, row in points_df.iterrows():
+        for _, row in points_df.iterrows():
+            if 'id' in row:
+                point_id = row['id']
+            else:
+                point_id = 0
+
+            if point_id == 0:
+                point_id = max_pt_id + 1
+                max_pt_id += 1
+
             point = [
-                point_id,
+                int(point_id),
                 row['x'],
                 row['y'],
                 row['z'],
@@ -162,6 +178,7 @@ def process(args):
                 round(row['b'])
             ]
 
+            # TODO: compute reprojection errors here if really necessary for some use case
             if nerfstudio_fake_obs:
                 fake_err = 1
                 img_id, point_id = 0, 0
@@ -174,6 +191,7 @@ def process(args):
     # Globals
     savedKeyFrames = {}
     pointClouds = {}
+    sparsePointColors = {}
     frameWidth = -1
     frameHeight = -1
     intrinsics = None
@@ -190,19 +208,21 @@ def process(args):
     def post_process_point_clouds(globalPointCloud, sparse_point_cloud_df):
         # Save point clouds
         if len(globalPointCloud) == 0:
-            # add fake (gray) colors
             merged_df = sparse_point_cloud_df
-            for c in 'rgb': merged_df[c] = 128
 
         else:
             point_cloud_df = pd.DataFrame(np.array(globalPointCloud), columns=list('xyzrgb'))
 
             # drop uncolored points
             colored_point_cloud_df = point_cloud_df.loc[point_cloud_df[list('rgb')].max(axis=1) > 0].reset_index()
+            colored_point_cloud_df['id'] = 0 # ID = 0 is not used for valid sparse map points
 
             filtered_point_cloud_df = exclude_points(colored_point_cloud_df, sparse_point_cloud_df, radius=args.cell_size)
             decimated_df = voxel_decimate(filtered_point_cloud_df, args.cell_size)
-            sparse_colored_point_cloud_df = interpolate_missing_properties(colored_point_cloud_df, sparse_point_cloud_df)
+
+            # the dense points clouds have presumably more stable colors at corner points
+            # rather use them than using the same approach as without dense data
+            sparse_colored_point_cloud_df = interpolate_missing_properties(colored_point_cloud_df, sparse_point_cloud_df[list('xyz')])
             merged_df = pd.concat([sparse_colored_point_cloud_df, decimated_df])
 
         if args.distance_quantile > 0:
@@ -222,6 +242,7 @@ def process(args):
     def onMappingOutput(output):
         nonlocal savedKeyFrames
         nonlocal pointClouds
+        nonlocal sparsePointColors
         nonlocal frameWidth
         nonlocal frameHeight
         nonlocal intrinsics
@@ -255,9 +276,22 @@ def process(args):
                 undistortedFrame = frameSet.getUndistortedFrame(targetFrame)
                 if intrinsics is None: intrinsics = undistortedFrame.cameraPose.camera.getIntrinsicMatrix()
                 img = undistortedFrame.image.toArray()
+
                 bgrImage = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
                 fileName = f"{args.output}/tmp/frame_{frameId:05}.{args.image_format}"
                 cv2.imwrite(fileName, bgrImage)
+
+                # Find colors for sparse features
+                SHOW_FEATURE_MARKERS = True
+                for mpObs in undistortedFrame.sparseFeatures:
+                    if mpObs.id not in sparsePointColors:
+                        px = np.clip(round(mpObs.pixelCoordinates.x), 0, img.shape[1]-1)
+                        py = np.clip(round(mpObs.pixelCoordinates.y), 0, img.shape[0]-1)
+                        rgb = list(img[py, px, ...].view(np.uint8))
+                        sparsePointColors[mpObs.id] = rgb
+                        if args.preview and SHOW_FEATURE_MARKERS:
+                            MARKER_COLOR = (0, 255, 0)
+                            cv2.circle(bgrImage, (px, py), 5, MARKER_COLOR, thickness=1)
 
                 # Legacy: support SDK versions which also produced images where frameSet.depthFrame.image was None
                 if frameSet.depthFrame is not None and frameSet.depthFrame.image is not None and not useMono:
@@ -280,105 +314,124 @@ def process(args):
 
         else:
             # Final optimized poses
-            try:
-                blurryImages = {}
-                imageSharpness = []
-                for frameId in output.map.keyFrames:
-                    imageSharpness.append((frameId, blurScore(f"{args.output}/tmp/frame_{frameId:05}.{args.image_format}")))
+            blurryImages = {}
+            sparseObservations = {}
+            # OrderedDict to avoid undefined iteration order = different output files for the same input
+            sparsePointCloud = OrderedDict()
+            imageSharpness = []
+            for frameId in output.map.keyFrames:
+                imageSharpness.append((frameId, blurScore(f"{args.output}/tmp/frame_{frameId:05}.{args.image_format}")))
 
-                # Look two images forward and two backwards, if current frame is blurriest, don't use it
-                for i in range(len(imageSharpness)):
-                    if i + 2 > len(imageSharpness): break
-                    group = [imageSharpness[j+i] for j in range(-2,2)]
-                    group.sort(key=lambda x : x[1])
-                    cur = imageSharpness[i][0]
-                    if group[0][0] == cur:
-                        blurryImages[cur] = True
+            # Look two images forward and two backwards, if current frame is blurriest, don't use it
+            for i in range(len(imageSharpness)):
+                if i + 2 > len(imageSharpness): break
+                group = [imageSharpness[j+i] for j in range(-2,2)]
+                group.sort(key=lambda x : x[1])
+                cur = imageSharpness[i][0]
+                if group[0][0] == cur:
+                    blurryImages[cur] = True
 
-                trainingFrames = []
-                validationFrames = []
-                globalPointCloud = []
-                index = 0
-                name = os.path.split(args.output)[-1]
-                for frameId in output.map.keyFrames:
-                    if blurryImages.get(frameId): continue # Skip blurry images
+            trainingFrames = []
+            validationFrames = []
+            globalPointCloud = []
+            index = 0
+            name = os.path.split(args.output)[-1]
+            for frameId in output.map.keyFrames:
+                if blurryImages.get(frameId): continue # Skip blurry images
 
-                    # Image data
-                    keyFrame = output.map.keyFrames.get(frameId)
+                # Image and pose data
+                keyFrame = output.map.keyFrames.get(frameId)
 
-                    targetFrame = keyFrame.frameSet.rgbFrame
-                    if not targetFrame: targetFrame = keyFrame.frameSet.primaryFrame
-                    cameraPose = targetFrame.cameraPose
+                targetFrame = keyFrame.frameSet.rgbFrame
+                if not targetFrame: targetFrame = keyFrame.frameSet.primaryFrame
+                cameraPose = targetFrame.cameraPose
 
-                    # Camera data
-                    frame = {
-                        "image_path": f"data/{name}/images/frame_{index:05}.{args.image_format}",
-                        "T_pointcloud_camera": cameraPose.getCameraToWorldMatrix().tolist(), # 4x4 matrix, the transformation matrix from camera coordinate to point cloud coordinate
-                        "camera_intrinsics": intrinsics.tolist(), # 3x3 matrix, the camera intrinsics matrix K
-                        "camera_height": frameHeight, # image height, in pixel
-                        "camera_width": frameWidth, # image width, in pixel
-                        "camera_id": index # camera id, not used
+                sparseObsForKeyFrame = []
+                DEFAULT_POINT_COLOR = [128, 128, 128] # default: 50% gray
+                for mpObs in targetFrame.sparseFeatures:
+                    # keeping native object: OK since this not used after the callback
+                    sparseObsForKeyFrame.append(mpObs)
+                    sparsePointCloud[mpObs.id] = {
+                        'position': [mpObs.position.x, mpObs.position.y, mpObs.position.z],
+                        'color': sparsePointColors.get(mpObs.id, DEFAULT_POINT_COLOR)
                     }
+                sparseObservations[frameId] = sparseObsForKeyFrame
 
-                    oldImgName = f"{args.output}/tmp/frame_{frameId:05}.{args.image_format}"
-                    newImgName = f"{args.output}/images/frame_{index:05}.{args.image_format}"
-                    os.rename(oldImgName, newImgName)
+                # Camera data
+                frame = {
+                    "image_path": f"data/{name}/images/frame_{index:05}.{args.image_format}",
+                    "T_pointcloud_camera": cameraPose.getCameraToWorldMatrix().tolist(), # 4x4 matrix, the transformation matrix from camera coordinate to point cloud coordinate
+                    "camera_intrinsics": intrinsics.tolist(), # 3x3 matrix, the camera intrinsics matrix K
+                    "camera_height": frameHeight, # image height, in pixel
+                    "camera_width": frameWidth, # image width, in pixel
+                    "camera_id": index # camera id, not used
+                }
 
-                    oldDepth = f"{args.output}/tmp/depth_{frameId:05}.png"
-                    newDepth = f"{args.output}/images/depth_{index:05}.png"
-                    if os.path.exists(oldDepth):
-                        os.rename(oldDepth, newDepth)
-                        frame['depth_image_path'] = f"data/{name}/images/depth_{index:05}.png"
+                oldImgName = f"{args.output}/tmp/frame_{frameId:05}.{args.image_format}"
+                newImgName = f"{args.output}/images/frame_{index:05}.{args.image_format}"
+                os.rename(oldImgName, newImgName)
 
-                    if (index + 3) % 7 == 0:
-                        validationFrames.append(frame)
-                    else:
-                        trainingFrames.append(frame)
+                oldDepth = f"{args.output}/tmp/depth_{frameId:05}.png"
+                newDepth = f"{args.output}/images/depth_{index:05}.png"
+                if os.path.exists(oldDepth):
+                    os.rename(oldDepth, newDepth)
+                    frame['depth_image_path'] = f"data/{name}/images/depth_{index:05}.png"
 
-                    if frameId in pointClouds:
-                        # Pointcloud data
-                        posData, colorData = pointClouds[frameId]
-                        pc = np.vstack((posData.T, np.ones((1, posData.shape[0]))))
-                        pc = (cameraPose.getCameraToWorldMatrix() @ pc)[:3, :].T
-                        pc = np.hstack((pc, colorData))
-                        globalPointCloud.extend(pc)
+                if (index + 3) % 7 == 0:
+                    validationFrames.append(frame)
+                else:
+                    trainingFrames.append(frame)
 
-                    index += 1
+                if frameId in pointClouds:
+                    # Pointcloud data
+                    posData, colorData = pointClouds[frameId]
+                    pc = np.vstack((posData.T, np.ones((1, posData.shape[0]))))
+                    pc = (cameraPose.getCameraToWorldMatrix() @ pc)[:3, :].T
+                    pc = np.hstack((pc, colorData))
+                    globalPointCloud.extend(pc)
 
-                merged_df = post_process_point_clouds(
-                    globalPointCloud,
-                    pd.read_csv(f"{args.output}/points.sparse.csv", usecols=list('xyz')))
+                index += 1
 
-                if args.format == 'taichi':
-                    # merged_df.to_csv(f"{args.output}/points.merged-decimated.csv", index=False)
-                    merged_df.to_parquet(f"{args.output}/point_cloud.parquet")
+            data = [list([pointId]) + list(point['position']) + list(point['color']) for pointId, point in sparsePointCloud.items()]
+            sparse_point_cloud_df = pd.DataFrame(
+                data,
+                columns=['id'] + list('xyzrgb'))
+            for c in 'rgb': sparse_point_cloud_df[c] = sparse_point_cloud_df[c].astype(np.uint8)
 
-                    with open(f"{args.output}/train.json", "w") as outFile:
-                        json.dump(trainingFrames, outFile, indent=2, sort_keys=True)
+            merged_df = post_process_point_clouds(
+                globalPointCloud,
+                sparse_point_cloud_df)
 
-                    with open(f"{args.output}/val.json", "w") as outFile:
-                        json.dump(validationFrames, outFile, indent=2, sort_keys=True)
-                elif args.format == 'nerfstudio':
-                    allFrames = trainingFrames + validationFrames
-                    with open(f"{args.output}/transforms.json", "w") as outFile:
-                        json.dump(convert_json_taichi_to_nerfstudio(allFrames), outFile, indent=2, sort_keys=True)
+            # print(merged_df)
 
-                    # colmap text point format
-                    fake_colmap = f"{args.output}/colmap/sparse/0"
-                    os.makedirs(fake_colmap, exist_ok=True)
+            if args.format == 'taichi':
+                # merged_df.to_csv(f"{args.output}/points.merged-decimated.csv", index=False)
+                merged_df[list('xyzrgb')].to_parquet(f"{args.output}/point_cloud.parquet")
 
-                    c_points, c_images, c_cameras = convert_json_taichi_to_colmap(allFrames, merged_df, nerfstudio_fake_obs=True)
+                with open(f"{args.output}/train.json", "w") as outFile:
+                    json.dump(trainingFrames, outFile, indent=2, sort_keys=True)
 
-                    def write_colmap_csv(data, fn):
-                        with open(fn, 'wt') as f:
-                            for row in data:
-                                f.write(' '.join([str(c) for c in row])+'\n')
+                with open(f"{args.output}/val.json", "w") as outFile:
+                    json.dump(validationFrames, outFile, indent=2, sort_keys=True)
+            elif args.format == 'nerfstudio':
+                allFrames = trainingFrames + validationFrames
+                with open(f"{args.output}/transforms.json", "w") as outFile:
+                    json.dump(convert_json_taichi_to_nerfstudio(allFrames), outFile, indent=2, sort_keys=True)
 
-                    write_colmap_csv(c_points, f"{fake_colmap}/points3D.txt")
-                    write_colmap_csv(c_images, f"{fake_colmap}/images.txt")
-                    write_colmap_csv(c_cameras, f"{fake_colmap}/cameras.txt")
-            except Exception as e:
-                print(f"Something went wrong: {e}")
+                # colmap text point format
+                fake_colmap = f"{args.output}/colmap/sparse/0"
+                os.makedirs(fake_colmap, exist_ok=True)
+
+                c_points, c_images, c_cameras = convert_json_taichi_to_colmap(allFrames, merged_df, sparseObservations, nerfstudio_fake_obs=True)
+
+                def write_colmap_csv(data, fn):
+                    with open(fn, 'wt') as f:
+                        for row in data:
+                            f.write(' '.join([str(c) for c in row])+'\n')
+
+                write_colmap_csv(c_points, f"{fake_colmap}/points3D.txt")
+                write_colmap_csv(c_images, f"{fake_colmap}/images.txt")
+                write_colmap_csv(c_cameras, f"{fake_colmap}/cameras.txt")
 
     def copy_input_to_tmp_safe(input_dir, tmp_input):
         # also works if tmp dir is inside the input directory
@@ -429,8 +482,7 @@ def process(args):
         "useSlam": True,
         "passthroughColorImages": True,
         "keyframeDecisionDistanceThreshold": args.key_frame_distance,
-        "icpVoxelSize": min(args.key_frame_distance, 0.1),
-        "mapSavePath": f"{args.output}/points.sparse.csv"
+        "icpVoxelSize": min(args.key_frame_distance, 0.1)
     }
 
     device_preset, cameras = detect_device_preset(args.input)
