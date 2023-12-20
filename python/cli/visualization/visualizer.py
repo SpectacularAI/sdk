@@ -35,7 +35,7 @@ class CameraSmooth:
         self.prevLookAtEye = None
         self.prevLookAtTarget = None
 
-    def compute(self, eye, target, paused):
+    def update(self, eye, target, paused):
         if self.prevLookAtEye is not None:
             if paused: return self.prevLookAtEye, self.prevLookAtTarget
             eyeSmooth = self.alpha * eye + (1.0 - self.alpha) * self.prevLookAtEye
@@ -53,6 +53,115 @@ class CameraSmooth:
         self.prevLookAtEye = None
         self.prevLookAtTarget = None
 
+class CameraControls2D:
+    def __init__(self):
+        self.zoomSpeed = 1.0
+        self.translateSpeed = 1.0
+        self.reset()
+
+    def reset(self):
+        self.lastMousePos = None
+        self.draggingRight = False
+        self.camera_pos = np.array([0.0, 0.0, 0.0])
+        self.zoom = 1.0
+
+    def update(self, event):
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if event.button == 3: # Right mouse button
+                self.draggingRight = True
+            elif event.button == 4: # Scroll up
+                self.zoom *= 0.95 * self.zoomSpeed
+            elif event.button == 5: # Scroll down
+                self.zoom *= 1.05 * self.zoomSpeed
+            self.lastMousePos = pygame.mouse.get_pos()
+        elif event.type == pygame.MOUSEBUTTONUP:
+            if event.button == 1:
+                self.draggingLeft = False
+            elif event.button == 3:
+                self.draggingRight = False
+        elif event.type == pygame.MOUSEMOTION:
+            if self.draggingRight:
+                # Drag to move
+                mouse_pos = pygame.mouse.get_pos()
+                dx = mouse_pos[0] - self.lastMousePos[0]
+                dy = mouse_pos[1] - self.lastMousePos[1]
+                self.camera_pos[0] += 0.01 * dx * self.translateSpeed
+                self.camera_pos[1] += 0.01 * dy * self.translateSpeed
+            self.lastMousePos = pygame.mouse.get_pos()
+
+    def transformViewMatrix(self, viewMatrix):
+        viewMatrix[:3, 3] += self.camera_pos
+        return viewMatrix
+
+class CameraControls3D:
+    def __init__(self):
+        self.zoomSpeed = 1.0
+        self.translateSpeed = 1.0
+        self.rotateSpeed = 1.0
+        self.reset()
+
+    def __rotationMatrixX(self, a):
+        return np.array([
+            [1, 0, 0],
+            [0, np.cos(a), -np.sin(a)],
+            [0, np.sin(a), np.cos(a)]
+        ])
+
+    def __rotationMatrixZ(self, a):
+        return np.array([
+            [np.cos(a), -np.sin(a), 0],
+            [np.sin(a), np.cos(a), 0],
+            [0, 0, 1]
+        ])
+
+    def reset(self):
+        self.lastMousePos = None
+        self.draggingLeft = False
+        self.draggingRight = False
+        self.camera_pos = np.array([0.0, 0.0, 0.0])
+        self.yaw = 0
+        self.pitch = 0
+        self.zoom = 1.0
+
+    def update(self, event):
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if event.button == 1: # Left mouse button
+                self.draggingLeft = True
+            elif event.button == 3: # Right mouse button
+                self.draggingRight = True
+            elif event.button == 4: # Scroll up
+                self.camera_pos[2] -= 0.25 * self.zoomSpeed
+            elif event.button == 5: # Scroll down
+                self.camera_pos[2] += 0.25 * self.zoomSpeed
+            self.lastMousePos = pygame.mouse.get_pos()
+        elif event.type == pygame.MOUSEBUTTONUP:
+            if event.button == 1:
+                self.draggingLeft = False
+            elif event.button == 3:
+                self.draggingRight = False
+        elif event.type == pygame.MOUSEMOTION:
+            if self.draggingRight:
+                # Drag to move
+                mouse_pos = pygame.mouse.get_pos()
+                dx = mouse_pos[0] - self.lastMousePos[0]
+                dy = mouse_pos[1] - self.lastMousePos[1]
+                self.camera_pos[0] += 0.01 * dx * self.translateSpeed
+                self.camera_pos[1] += 0.01 * dy * self.translateSpeed
+            elif self.draggingLeft:
+                # Drag to rotate (yaw and pitch)
+                mouse_pos = pygame.mouse.get_pos()
+                dx = mouse_pos[0] - self.lastMousePos[0]
+                dy = mouse_pos[1] - self.lastMousePos[1]
+                self.yaw += 0.001 * dx * self.rotateSpeed
+                self.pitch += 0.003 * dy * self.rotateSpeed
+            self.lastMousePos = pygame.mouse.get_pos()
+
+    def transformViewMatrix(self, viewMatrix):
+        viewMatrix[:3, 3] += self.camera_pos
+        viewMatrix[:3, :3] = self.__rotationMatrixX(self.pitch) @ viewMatrix[:3, :3] # rotate around camera y-axis
+        viewMatrix[:3, :3] = viewMatrix[:3, :3] @ self.__rotationMatrixZ(self.yaw) # rotate around world z-axis
+        return viewMatrix
+
 class VisualizerArgs:
     # Window
     resolution = "1280x720" # Window resolution
@@ -60,12 +169,14 @@ class VisualizerArgs:
     visualizationScale = 10.0 # Generic scale of visualizations. Affects color maps, camera size, etc.
     backGroundColor = [1, 1, 1] # Background color RGB color (0-1).
     keepOpenAfterFinalMap = False # If false, window is automatically closed on final mapper output
+    targetFps = 0 # 0 = render when vio output is available, otherwise tries to render at specified target fps
 
     # Camera
     cameraNear = 0.01 # Camera near plane (m)
     cameraFar = 100.0 # Camera far plane (m)
     cameraMode = CameraMode.THIRD_PERSON # Camera mode (options: AR, 3rd person, 2D). Note: AR mode should have 'useRectification: True'
     cameraSmooth = True # Enable camera smoothing in 3rd person mode
+    cameraFollow = True # When true, camera follows estimated camera pose. Otherwise, use free camera (3rd person, 2D)
     flip = False # Vertically flip image in AR mode
 
     # Initial state for visualization components
@@ -133,6 +244,7 @@ class Visualizer:
         self.displayInitialized = False
         self.outputQueue = []
         self.outputQueueMutex = Lock()
+        self.clock = pygame.time.Clock()
 
         # Window
         self.fullScreen = args.fullScreen
@@ -144,8 +256,8 @@ class Visualizer:
         # Camera
         self.cameraMode = self.args.cameraMode
         self.cameraSmooth = CameraSmooth() if args.cameraSmooth else None
-        self.initialZoom = args.visualizationScale / 10.0
-        self.zoom = self.initialZoom
+        self.cameraControls2D = CameraControls2D()
+        self.cameraControls3D = CameraControls3D()
 
         # Toggle visualization components
         self.showGrid = args.showGrid
@@ -218,6 +330,16 @@ class Visualizer:
         glClearColor(*self.args.backGroundColor, 1.0)
         glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT)
 
+        if self.args.cameraFollow:
+            cameraToWorld = cameraPose.getCameraToWorldMatrix()
+        else:
+            cameraToWorld = np.array([
+                [0, 0, 1, 0 ],
+                [-1, 0, 0, 0 ],
+                [ 0, -1, 0, 0],
+                [0, 0, 0, 1]]
+            )
+
         near, far = self.args.cameraNear, self.args.cameraFar
         if self.cameraMode == CameraMode.AR:
             if image is not None:
@@ -225,29 +347,24 @@ class Visualizer:
                 glDrawPixels(width, height, GL_LUMINANCE if colorFormat == spectacularAI.ColorFormat.GRAY else GL_RGB, GL_UNSIGNED_BYTE, image.data)
             viewMatrix = cameraPose.getWorldToCameraMatrix()
             projectionMatrix = cameraPose.camera.getProjectionMatrixOpenGL(near, far)
-            if self.args.flip: projectionMatrix = np.array([1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]) @ projectionMatrix
+            if self.args.flip: projectionMatrix = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]) @ projectionMatrix
         elif self.cameraMode == CameraMode.THIRD_PERSON:
-            # TODO: implement mouse controls
-            cameraToWorld = cameraPose.getCameraToWorldMatrix()
             up = np.array([0.0, 0.0, 1.0])
             forward = cameraToWorld[0:3, 2]
             eye = cameraToWorld[0:3, 3] - 10.0 * forward + 5.0 * up
             target = cameraToWorld[0:3, 3]
-            if self.cameraSmooth: eye, target = self.cameraSmooth.compute(eye, target, self.shouldPause)
-            viewMatrix = lookAt(eye, target, up)
+            if self.cameraSmooth: eye, target = self.cameraSmooth.update(eye, target, self.shouldPause)
+            viewMatrix = self.cameraControls3D.transformViewMatrix(lookAt(eye, target, up))
             projectionMatrix = cameraPose.camera.getProjectionMatrixOpenGL(near, far)
-            projectionMatrix[0, 0] *= 1.0 / self.zoom
-            projectionMatrix[1, 1] *= 1.0 / self.zoom
         elif self.cameraMode == CameraMode.TOP_VIEW:
-            cameraToWorld = cameraPose.getCameraToWorldMatrix()
             eye = cameraToWorld[0:3, 3] + np.array([0, 0, 15])
             target = cameraToWorld[0:3, 3]
             up = np.array([-1.0, 0.0, 0.0])
-            viewMatrix = lookAt(eye, target, up)
-            left = -25.0 * self.zoom
-            right = 25.0 * self.zoom
-            bottom = -25.0 * self.zoom / self.aspectRatio # divide by aspect ratio to avoid strecthing (i.e. x and y directions have equal scale)
-            top = 25.0 * self.zoom / self.aspectRatio
+            viewMatrix = self.cameraControls2D.transformViewMatrix(lookAt(eye, target, up))
+            left = -25.0 * self.cameraControls2D.zoom
+            right = 25.0 * self.cameraControls2D.zoom
+            bottom = -25.0 * self.cameraControls2D.zoom / self.aspectRatio # divide by aspect ratio to avoid strecthing (i.e. x and y directions have equal scale)
+            top = 25.0 * self.cameraControls2D.zoom / self.aspectRatio
             projectionMatrix = getOrthographicProjectionMatrixOpenGL(left, right, bottom, top, -1000.0, 1000.0)
 
         self.map.render(cameraPose.getPosition(), viewMatrix, projectionMatrix)
@@ -267,12 +384,13 @@ class Visualizer:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.shouldQuit = True
-            if event.type == pygame.KEYDOWN:
+            elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_q: self.shouldQuit = True
                 elif event.key == pygame.K_SPACE: self.shouldPause = not self.shouldPause
                 elif event.key == pygame.K_c:
                     self.cameraMode = self.cameraMode.next()
-                    self.zoom = self.initialZoom
+                    self.cameraControls2D.reset()
+                    self.cameraControls3D.reset()
                     if self.cameraSmooth: self.cameraSmooth.reset()
                 elif event.key == pygame.K_PLUS:
                     self.map.setPointSize(np.clip(self.map.pointSize*1.05, 0.0, 10.0))
@@ -308,11 +426,9 @@ class Visualizer:
                     else: pygame.display.set_mode((w, h), DOUBLEBUF | OPENGL)
                 elif event.key == pygame.K_h:
                     self.printHelp()
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 4: # Mouse wheel up
-                    self.zoom = min(10.0*self.initialZoom , self.zoom * 1.05)
-                elif event.button == 5: # Mouse wheel down
-                    self.zoom = max(0.1*self.initialZoom , self.zoom * 0.95)
+            else:
+                if self.cameraMode is CameraMode.THIRD_PERSON: self.cameraControls3D.update(event)
+                if self.cameraMode is CameraMode.TOP_VIEW: self.cameraControls2D.update(event)
 
     def onVioOutput(self, cameraPose, image=None, width=None, height=None, colorFormat=None):
         if self.shouldQuit: return
@@ -358,22 +474,22 @@ class Visualizer:
             self.outputQueue.append(output)
 
     def run(self):
+        vioOutput = None
+
         while not self.shouldQuit:
             self.__processUserInput()
 
-            if self.shouldPause or len(self.outputQueue) == 0:
-                time.sleep(0.01)
-                continue
-
             # Process VIO & Mapping API outputs
-            vioOutput = None
             while self.outputQueueMutex and len(self.outputQueue) > 0:
+                if self.shouldPause: break
+
                 output = self.outputQueue.pop(0)
                 if output["type"] == "vio":
                     vioOutput = output
                     cameraPose = vioOutput["cameraPose"]
                     self.poseTrail.append(cameraPose.getPosition())
-                    break
+                    # Drop vio outputs if target fps is too low
+                    if self.args.targetFps == 0: break
                 elif output["type"] == "slam":
                     mapperOutput = output["mapperOutput"]
                     self.map.onMappingOutput(mapperOutput)
@@ -389,6 +505,14 @@ class Visualizer:
                     vioOutput["height"],
                     vioOutput["image"],
                     vioOutput["colorFormat"])
+
+            if self.args.targetFps > 0:
+                # Try to render at target fps
+                self.clock.tick(self.args.targetFps)
+            else:
+                # Render whenever vioOutput is available
+                vioOutput = None
+                time.sleep(0.01)
 
         self.__close()
 
