@@ -533,8 +533,10 @@ def process(args):
             if not args.fast: parameter_sets.append('offline-icp')
 
     if args.preview3d:
-        from spectacularAI.cli.visualization.visualizer import Visualizer
-        visualizer = Visualizer()
+        from spectacularAI.cli.visualization.visualizer import Visualizer, VisualizerArgs
+        visArgs = VisualizerArgs()
+        visArgs.targetFps = 30
+        visualizer = Visualizer(visArgs)
 
     with open(tmp_input + "/vio_config.yaml", 'wt') as f:
         base_params = 'parameterSets: %s' % json.dumps(parameter_sets)
