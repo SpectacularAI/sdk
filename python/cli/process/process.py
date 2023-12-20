@@ -43,6 +43,8 @@ def process(args):
         from scipy.spatial import KDTree
         xyz = list('xyz')
 
+        print('generating a simplified point cloud (this may take a while...)')
+
         tree = KDTree(df_source[xyz].values)
         _, ii = tree.query(df_query[xyz], k=k_nearest)
         n = df_query.shape[0]
