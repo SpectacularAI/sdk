@@ -16,7 +16,6 @@ void showUsage() {
         << "  --depth_res <width,height>" << std::endl
         << "  --frame_rate <fps>" << std::endl
         << "  --align, use orbbec sdk to align depth images to color images, note color camera might have smaller fov!" << std::endl
-        << "  --mono (-useStereo=false, rgb only & depth camera disabled)" << std::endl
         << "  --print" << std::endl
         << "  --exposure <value>" << std::endl
         << "  --gain <value>" << std::endl
@@ -117,8 +116,6 @@ int main(int argc, char *argv[]) {
             config.cameraFps = std::stoi(arguments.at(++i));
         else if (argument == "--align")
             config.alignedDepth = true;
-        else if (argument == "--mono")
-            config.useStereo = false;
         else if (argument == "--print")
             print = true;
         else if (argument == "--exposure")
