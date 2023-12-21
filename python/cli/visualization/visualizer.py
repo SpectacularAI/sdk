@@ -287,6 +287,10 @@ class Visualizer:
         # Recording
         self.recorder = None
 
+    def __resetAfterLost(self):
+        self.map.reset()
+        self.poseTrail.reset()
+
     def __initDisplay(self):
         from pygame.locals import DOUBLEBUF, OPENGL, FULLSCREEN, GL_MULTISAMPLEBUFFERS, GL_MULTISAMPLESAMPLES
 
@@ -430,29 +434,26 @@ class Visualizer:
                 if self.cameraMode is CameraMode.THIRD_PERSON: self.cameraControls3D.update(event)
                 if self.cameraMode is CameraMode.TOP_VIEW: self.cameraControls2D.update(event)
 
-    def onVioOutput(self, cameraPose, image=None, width=None, height=None, colorFormat=None):
+    def onVioOutput(self, cameraPose, image=None, width=None, height=None, colorFormat=None, status=None):
         if self.shouldQuit: return
+        import spectacularAI
 
-        if image is None:
-            output = {
-                "type": "vio",
-                "cameraPose" : cameraPose,
-                "image" : None,
-                "width" : self.targetResolution[0],
-                "height" : self.targetResolution[1],
-                "colorFormat" : None
-            }
-        else:
+        output = {
+            "type": "vio",
+            "isTracking": status == spectacularAI.TrackingStatus.TRACKING,
+            "cameraPose" : cameraPose,
+            "image" : None,
+            "width" : self.targetResolution[0],
+            "height" : self.targetResolution[1],
+            "colorFormat" : None
+        }
+        if image is not None:
             # Flip the image upside down for OpenGL.
             if not self.args.flip: image = np.ascontiguousarray(np.flipud(image))
-            output = {
-                "type" : "vio",
-                "cameraPose" : cameraPose,
-                "image" : image,
-                "width" : width,
-                "height" : height,
-                "colorFormat" : colorFormat
-            }
+            output['width'] = width
+            output['height'] = height
+            output['colorFormat'] = colorFormat
+
 
         if self.outputQueueMutex:
             self.outputQueue.append(output)
@@ -475,24 +476,37 @@ class Visualizer:
 
     def run(self):
         vioOutput = None
+        wasTracking = False
 
         while not self.shouldQuit:
             self.__processUserInput()
 
             # Process VIO & Mapping API outputs
-            while self.outputQueueMutex and len(self.outputQueue) > 0:
+            while True:
                 if self.shouldPause: break
 
-                output = self.outputQueue.pop(0)
+                if self.outputQueueMutex and len(self.outputQueue) > 0:
+                    output = self.outputQueue.pop(0)
+                else:
+                    break
+
                 if output["type"] == "vio":
                     vioOutput = output
-                    cameraPose = vioOutput["cameraPose"]
-                    self.poseTrail.append(cameraPose.getPosition())
+                    if vioOutput['isTracking']:
+                        wasTracking = True
+                        cameraPose = vioOutput["cameraPose"]
+                        self.poseTrail.append(cameraPose.getPosition())
+                    else:
+                        vioOutput = None
+                        if wasTracking:
+                            self.__resetAfterLost()
+                            wasTracking = False
                     # Drop vio outputs if target fps is too low
                     if self.args.targetFps == 0: break
                 elif output["type"] == "slam":
                     mapperOutput = output["mapperOutput"]
-                    self.map.onMappingOutput(mapperOutput)
+                    if wasTracking: # Don't render if not tracking. Messes up this visualization easily
+                        self.map.onMappingOutput(mapperOutput)
                     if mapperOutput.finalMap and not self.args.keepOpenAfterFinalMap:
                         self.shouldQuit = True
                 else:

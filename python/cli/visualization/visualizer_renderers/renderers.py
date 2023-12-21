@@ -77,12 +77,7 @@ class MapRenderer:
             renderSparsePointCloud='auto',
             renderKeyFrames=True,
             renderMesh=False):
-        self.keyFrameCameraToWorldMatrices = {}
-        self.pointCloudRenderers = {}
-        self.sparsePointCloudRenderer = None
         self.renderSparsePointCloud = renderSparsePointCloud
-        self.keyFrameRenderer = KeyFrameRenderer()
-        # self.meshRenderer = MeshRenderer() # TODO: fix
 
         # constant for entire visualization
         self.voxelSize = 0 if voxelSize is None else voxelSize
@@ -98,6 +93,8 @@ class MapRenderer:
         self.opacity = pointOpacity
         self.maxRenderKeyFrames = keyFrameCount
         self.colorMode = colorMode
+
+        self.reset()
 
     def onMappingOutput(self, mapperOutput):
         for kfId in mapperOutput.updatedKeyFrames:
@@ -177,6 +174,13 @@ class MapRenderer:
     def setMaxRenderKeyFrames(self, n):
         self.maxRenderKeyFrames = n
 
+    def reset(self):
+        self.keyFrameCameraToWorldMatrices = {}
+        self.pointCloudRenderers = {}
+        self.sparsePointCloudRenderer = None
+        self.keyFrameRenderer = KeyFrameRenderer()
+        # self.meshRenderer = MeshRenderer() # TODO: fix
+
     def render(self, cameraPositionWorld, viewMatrix, projectionMatrix):
         n = len(self.pointCloudRenderers) if self.maxRenderKeyFrames is None else self.maxRenderKeyFrames
 
@@ -203,10 +207,13 @@ class MapRenderer:
 
 class PoseTrailRenderer:
     def __init__(self, maxLength=None, color=np.array(DEFAULT_POSE_TRAIL_RGBA), lineWidth=2.0):
-        self.poseTrail = []
         self.color = color
         self.maxLength = maxLength
         self.lineWidth = lineWidth
+        self.reset()
+
+    def reset(self):
+        self.poseTrail = []
 
     def append(self, position):
         position = np.array([position.x, position.y, position.z])
