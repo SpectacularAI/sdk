@@ -198,6 +198,8 @@ def process(args):
     frameHeight = -1
     intrinsics = None
     visualizer = None
+    isTracking = False
+    finalMapWritten = False
 
     def blurScore(path):
         image = cv2.imread(path)
@@ -237,9 +239,14 @@ def process(args):
         return merged_df
 
     def onVioOutput(vioOutput):
-        nonlocal visualizer
+        nonlocal visualizer, isTracking
+        wasTracking = isTracking
+        isTracking = vioOutput.status == spectacularAI.TrackingStatus.TRACKING
+        if wasTracking and not isTracking:
+            print('warning: Lost tracking!')
+
         if visualizer is not None:
-            visualizer.onVioOutput(vioOutput.getCameraPose(0))
+            visualizer.onVioOutput(vioOutput.getCameraPose(0), status=vioOutput.status)
 
     def onMappingOutput(output):
         nonlocal savedKeyFrames
@@ -250,6 +257,7 @@ def process(args):
         nonlocal intrinsics
         nonlocal visualizer
         nonlocal useMono
+        nonlocal finalMapWritten
 
         if visualizer is not None:
             visualizer.onMappingOutput(output)
@@ -435,6 +443,8 @@ def process(args):
                 write_colmap_csv(c_images, f"{fake_colmap}/images.txt")
                 write_colmap_csv(c_cameras, f"{fake_colmap}/cameras.txt")
 
+            finalMapWritten = True
+
     def copy_input_to_tmp_safe(input_dir, tmp_input):
         # also works if tmp dir is inside the input directory
         os.makedirs(tmp_input, exist_ok=True)
@@ -538,6 +548,7 @@ def process(args):
         from spectacularAI.cli.visualization.visualizer import Visualizer, VisualizerArgs
         visArgs = VisualizerArgs()
         visArgs.targetFps = 30
+        visArgs.showCameraModel = False
         visualizer = Visualizer(visArgs)
 
     with open(tmp_input + "/vio_config.yaml", 'wt') as f:
@@ -564,6 +575,10 @@ def process(args):
         shutil.rmtree(tmp_dir)
     except:
         print(f"Failed to clean temporary directory, you can delete these files manually, they are no longer required: {tmp_dir}", flush=True)
+
+    if not finalMapWritten:
+        print('Mapping failed: no output generated')
+        exit(1)
 
     print("Done!\n", flush=True)
 
