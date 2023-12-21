@@ -54,7 +54,7 @@ bool setCameraProperty(std::shared_ptr<ob::Device> device, OBPropertyID property
             if (value == device->getBoolProperty(propertyId)) return true;
 
             if(device->isPropertySupported(propertyId, OB_PERMISSION_WRITE)) {
-                device->setBoolProperty(propertyId, !value);
+                device->setBoolProperty(propertyId, value);
                 return true;
             }
             std::cerr << propertyName << " set property is not supported." << std::endl;
