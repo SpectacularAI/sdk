@@ -520,7 +520,6 @@ def process(args):
     if args.device_preset:
         device_preset = args.device_preset
 
-
     if device_preset: print(f"Selected device type: {device_preset}", flush=True)
     else: print("Warning! Couldn't automatically detect device preset, to ensure best results suply one via --device_preset argument", flush=True)
 
@@ -539,7 +538,7 @@ def process(args):
     elif device_preset == 'oak-d':
         config['stereoPointCloudMinDepth'] = 0.5
         config['stereoPointCloudStride'] = 30
-    elif "orbbec" in device_preset:
+    elif device_preset is not None and "orbbec" in device_preset:
         if prefer_icp:
             parameter_sets.extend(['icp'])
             if not args.fast: parameter_sets.append('offline-icp')
