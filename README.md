@@ -8,6 +8,7 @@ The SDK is available for non-commercial use on following platforms:
 
 * Luxonis OAK-Ds via PyPi with `pip install spectacularai` and for C++ at [Releases](https://github.com/SpectacularAI/sdk/releases/latest)
 * Intel RealSense D455 & D435i for C++ at [Releases](https://github.com/SpectacularAI/sdk/releases/latest)
+* Orbbec Astra 2, Femto Bolt and Femto Mega for C++ on Linux at [Releases](https://github.com/SpectacularAI/sdk/releases/latest)
 * Azure Kinect [1.24.0 Release](https://github.com/SpectacularAI/sdk/releases/tag/v1.24.0) *
 * iPhones & iPads (recording & offline usage only) in the [App Store](https://apps.apple.com/us/app/spectacular-rec/id6473188128)
 
