@@ -92,6 +92,20 @@ class MockCameraPose:
 class MockVioOutput:
     def __init__(self, data):
         self.data = data
+        if "trackingStatus" in data:
+            status = data["trackingStatus"]
+            if status == 0:
+                self.status = spectacularAI.TrackingStatus.INIT
+            elif status == 1:
+                self.status = spectacularAI.TrackingStatus.TRACKING
+            elif status == 2:
+                self.status = spectacularAI.TrackingStatus.LOST_TRACKING
+            else:
+                raise ValueError("Unknown tracking status: {0}".format(status))
+        else:
+            # Support older versions of cpp serialization
+            self.status = spectacularAI.TrackingStatus.TRACKING
+
     def getCameraPose(self, index):
         return MockCameraPose(self.data["cameraPoses"][index])
 
