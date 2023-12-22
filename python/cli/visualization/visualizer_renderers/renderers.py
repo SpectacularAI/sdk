@@ -8,10 +8,10 @@ DEFAULT_POSE_TRAIL_RGBA = [0, 0.75, 1.0, 0.75]
 DEFAULT_GRID_RGBA = [0.75, 0.75, 0.75, 0.3]
 DEFAULT_FRUSTUM_RGBA = [0.75, 0.75, 0.75, 0.4]
 DEFAULT_KEYFRAME_RGBA = [0.9, 0.4, 0.0, 0.75]
-DEFAULT_CAMERA_MODEL_RGB = [1.0, 0.0, 0.0]
+DEFAULT_CAMERA_RGBA = [1.0, 0.0, 0.0, 0.75]
 
-class KeyFrameRenderer:
-    def __init__(self, color=np.array(DEFAULT_KEYFRAME_RGBA), scale=0.05, lineWidth=2):
+class CameraWireframeRenderer:
+    def __init__(self, color=np.array(DEFAULT_CAMERA_RGBA), scale=0.05, lineWidth=2):
         self.color = color
         self.lineWidth = lineWidth
         self.vertices = np.array([
@@ -33,7 +33,7 @@ class KeyFrameRenderer:
             [4, 1],
         ]
 
-    def render(self, keyFrameCameraToWorldMatrices, viewMatrix, projectionMatrix):
+    def render(self, modelMatrix, viewMatrix, projectionMatrix):
         glLineWidth(self.lineWidth)
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
@@ -41,6 +41,37 @@ class KeyFrameRenderer:
         glHint(GL_LINE_SMOOTH_HINT, GL_NICEST)
         glEnable(GL_DEPTH_TEST)
         glColor4fv(self.color)
+
+        modelView = viewMatrix @ modelMatrix
+        glMatrixMode(GL_MODELVIEW)
+        glLoadMatrixf(modelView.transpose())
+        glMatrixMode(GL_PROJECTION)
+        glLoadMatrixf(projectionMatrix.transpose())
+
+        glBegin(GL_LINES)
+        for edge in self.edges:
+            p0 = self.vertices[edge[0]]
+            p1 = self.vertices[edge[1]]
+            glVertex3f(p0[0], p0[1], p0[2])
+            glVertex3f(p1[0], p1[1], p1[2])
+        glEnd()
+
+        glDisable(GL_BLEND)
+        glDisable(GL_LINE_SMOOTH)
+        glDisable(GL_DEPTH_TEST)
+
+class KeyFrameRenderer:
+    def __init__(self, color=np.array(DEFAULT_KEYFRAME_RGBA), scale=0.05, lineWidth=2):
+        self.cameraWireframe = CameraWireframeRenderer(color, scale, lineWidth)
+
+    def render(self, keyFrameCameraToWorldMatrices, viewMatrix, projectionMatrix):
+        glLineWidth(self.cameraWireframe.lineWidth)
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        glEnable(GL_LINE_SMOOTH)
+        glHint(GL_LINE_SMOOTH_HINT, GL_NICEST)
+        glEnable(GL_DEPTH_TEST)
+        glColor4fv(self.cameraWireframe.color)
 
         for kfId in keyFrameCameraToWorldMatrices:
             modelMatrix = keyFrameCameraToWorldMatrices[kfId]
@@ -51,9 +82,9 @@ class KeyFrameRenderer:
             glLoadMatrixf(projectionMatrix.transpose())
 
             glBegin(GL_LINES)
-            for edge in self.edges:
-                p0 = self.vertices[edge[0]]
-                p1 = self.vertices[edge[1]]
+            for edge in self.cameraWireframe.edges:
+                p0 = self.cameraWireframe.vertices[edge[0]]
+                p1 = self.cameraWireframe.vertices[edge[1]]
                 glVertex3f(p0[0], p0[1], p0[2])
                 glVertex3f(p1[0], p1[1], p1[2])
             glEnd()
@@ -382,44 +413,6 @@ class CameraFrustumRenderer:
             glEnd()
 
         glDisable(GL_DEPTH_TEST)
-
-def createCameraModelMesh(scale=1.0, color=np.array(DEFAULT_CAMERA_MODEL_RGB)):
-    scale = 0.2 * scale
-    vertices = np.array([
-        -0.5, -0.5, 0.0,  # Vertex 0: Near top-left
-         0.5, -0.5, 0.0,  # Vertex 1: Near top-right
-         0.5,  0.5, 0.0,  # Vertex 2: Near bottom-right
-        -0.5,  0.5, 0.0,  # Vertex 3: Near bottom-left
-        -1.0, -1.0, 1.0,  # Vertex 4: Far top-left
-         1.0, -1.0, 1.0,  # Vertex 5: Far top-right
-         1.0,  1.0, 1.0,  # Vertex 6: Far bottom-right
-        -1.0,  1.0, 1.0   # Vertex 7: Far bottom-left
-    ], dtype=np.float32)
-
-    vertices *= scale
-
-    colors = np.array([
-        color,
-        color,
-        color,
-        color,
-        # add some shading
-        0.5 * color,
-        0.5 * color,
-        0.5 * color,
-        0.5 * color
-    ], dtype=np.float32)
-
-    triangles = np.array([
-        0, 1, 2, 0, 2, 3,  # Near face
-        4, 5, 6, 4, 6, 7,  # Far face
-        0, 1, 5, 0, 5, 4,  # Bottom face
-        1, 2, 6, 1, 6, 5,  # Right face
-        2, 3, 7, 2, 7, 6,  # Top face
-        3, 0, 4, 3, 4, 7   # Left face
-    ], dtype=np.uint32)
-
-    return Mesh(vertices, colors, triangles)
 
 def createPlaneMesh(scale, position, color):
     # 3 ---- 2

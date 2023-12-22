@@ -281,7 +281,7 @@ class Visualizer:
             renderMesh=args.showMesh)
         self.poseTrail = PoseTrailRenderer(maxLength=args.poseTrailLength)
         self.grid = GridRenderer(radius=args.gridRadius, length=args.gridCellLength, origin=args.gridOrigin)
-        self.cameraModelRenderer = MeshRenderer(createCameraModelMesh(scale=args.visualizationScale / 20.0))
+        self.cameraModelRenderer = CameraWireframeRenderer()
         self.cameraFrustumRenderer = None # initialized later when camera projection matrix is available
 
         # Recording
