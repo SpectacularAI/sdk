@@ -11,9 +11,9 @@ The SDK is available for non-commercial use on following platforms:
 * Orbbec Astra 2, Femto Bolt and Femto Mega for C++ on Linux at [Releases](https://github.com/SpectacularAI/sdk/releases/latest)
 * Azure Kinect [1.24.0 Release](https://github.com/SpectacularAI/sdk/releases/tag/v1.24.0) *
 * iPhones & iPads (recording & offline usage only) in the [App Store](https://apps.apple.com/us/app/spectacular-rec/id6473188128)
-* Android recording & offline usage only) in the [Play Store](https://play.google.com/store/apps/details?id=com.spectacularai.rec&pcampaignid=web_share)
+* Android in the [Play Store](https://play.google.com/store/apps/details?id=com.spectacularai.rec&pcampaignid=web_share)
 
-*&#41; Azure Kinect was discontinue by Microsoft and [they've licensed the ToF technology found in Kinect to Orbbec](https://www.orbbec.com/microsoft-collaboration/) and we plan to add support for Orbbec cameras soon!
+*&#41; Azure Kinect was discontinue by Microsoft and [they've licensed the ToF technology found in Kinect to Orbbec](https://www.orbbec.com/microsoft-collaboration/), we support Femto Bolt and Femto Mega which use the same ToF sensor as Azure Kinect.
 
 For more alternatives (support for other devices), CPU architectures (ARM) and commercial licensing options, please contact us at https://www.spectacularai.com.
 
