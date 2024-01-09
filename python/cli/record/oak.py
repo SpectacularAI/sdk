@@ -50,13 +50,17 @@ def define_args(p):
     # for options that might be available. On Raspberry Pi or Jetson, try "h264_v4l2m2m",
     # and on Linux machines with Nvidia GPUs, try "h264_nvenc".
     p.add_argument('--ffmpeg_codec', help="FFMpeg codec for host", default=None)
+    p.add_argument('--ffmpeg_preview', help="Save PNG previews while recording with ffmpeg every Nth frame", type=int)
+    p.add_argument('--ffmpeg_preview_scale', help="Scale of the ffmpeg PNG previews 0.5 half, 1.0 full resolution etc.", type=float)
+    p.add_argument("--use_encoded_video", help="Encodes video on OAK-D, works only in recording only mode", action="store_true")
+    p.add_argument("--color_stereo", help="Use this flag with devices that have color stereo cameras", action="store_true")
     p.add_argument('--map', help='Record SLAM map', action="store_true")
     p.add_argument('--no_feature_tracker', help='Disable on-device feature tracking', action="store_true")
     p.add_argument('--vio_auto_exposure', help='Enable SpectacularAI auto exposure which optimizes exposure parameters for VIO performance (BETA)', action="store_true")
     p.add_argument('--ir_dot_brightness', help='OAK-D Pro (W) IR laser projector brightness (mA), 0 - 1200', type=float, default=0)
     p.add_argument("--resolution", help="Gray input resolution (gray)",
         default='400p',
-        choices=['400p', '800p'])
+        choices=['400p', '800p', '1200p'])
 
     return p
 
@@ -89,6 +93,8 @@ def record(args):
         autoFolderName = datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
         outputFolder = os.path.join(outputFolder, autoFolderName)
 
+    internalParameters = {}
+
     if not args.no_inputs:
         config.recordingFolder = outputFolder
     if args.map:
@@ -111,10 +117,20 @@ def record(args):
     if args.disable_cameras:
         config.disableCameras = True
     if args.ffmpeg_codec is not None:
-        config.internalParameters = { 'ffmpegVideoCodec': args.ffmpeg_codec + ' -b:v 8M' }
-        print(config.internalParameters)
+        internalParameters["ffmpegVideoCodec"] = args.ffmpeg_codec + ' -b:v 8M'
     if args.no_usb_speed_check:
         config.ensureSufficientUsbSpeed = False
+    if args.color_stereo:
+        config.useColorStereoCameras = True
+    if args.use_encoded_video:
+        config.forceUnrectified = True
+        config.useEncodedVideo = True
+    if args.ffmpeg_preview:
+        internalParameters["ffmpegPngPreviewNthFrame"] = str(args.ffmpeg_preview)
+    if args.ffmpeg_preview_scale:
+        internalParameters["ffmpegPngPreviewScale"] = str(args.ffmpeg_preview_scale).replace(",", ".")
+
+    config.internalParameters = internalParameters
 
     # Enable recoding by setting recordingFolder option
     vio_pipeline = spectacularAI.depthai.Pipeline(pipeline, config)
