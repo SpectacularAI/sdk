@@ -19,22 +19,21 @@ endif()
 
 find_package(Threads REQUIRED)
 find_package(spectacularAI_orbbecPlugin REQUIRED)
+find_package(OrbbecSDK REQUIRED PATHS "${OrbbecSDK_DIR}")
 
 if(MSVC) # Must be after project() is called
   set(CMAKE_CXX_STANDARD 20)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP /Gy")
-  find_package(OrbbecSDK CONFIG REQUIRED PATHS "${OrbbecSDK_DIR}")
 else()
   set(CMAKE_CXX_STANDARD 14)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
-  find_package(OrbbecSDK CONFIG REQUIRED PATHS "${OrbbecSDK_DIR}")
   SET(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--exclude-libs=ALL")
 endif()
 
 set(TOOL_LIBS
-  ${OrbbecSDK_LIBS}
+  Threads::Threads
   spectacularAI::orbbecPlugin
-  Threads::Threads)
+  OrbbecSDK::OrbbecSDK)
 
 # enables searching for dynamic libraries from the relative path ../lib
 if(NOT MSVC)
@@ -43,7 +42,6 @@ endif()
 
 add_executable(sai-record-orbbec record.cpp)
 target_link_libraries(sai-record-orbbec ${TOOL_LIBS})
-target_include_directories(sai-record-orbbec PRIVATE ${OrbbecSDK_INCLUDE_DIRS})
 
 if(MSVC)
   add_custom_command(TARGET sai-record-orbbec POST_BUILD
