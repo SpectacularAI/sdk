@@ -3,7 +3,8 @@ An example code to deserialize data serialized by cpp/mapping_visu C++ example
 """
 
 # Needed when SLAM is disabled (no final map flag to indicate end of data)
-EXIT_AFTER_NO_DATA_FOR_N_SECONDS = 5
+HEADER_TIMEOUT = 5
+HEADER_SIZE = 16
 
 import struct
 import json
@@ -11,25 +12,32 @@ import numpy as np
 import spectacularAI
 import time
 
+def read_bytes(in_stream, n, timeout=0):
+    dt = 0
+    result = b""  # Initialize an empty bytes object
+    while n > 0:
+        chunk = in_stream.read(n)
+        if len(chunk) > 0:
+            result += chunk
+            n -= len(chunk)
+        else:
+            time.sleep(0.01)
+            dt += 0.01
+            if timeout > 0 and dt > timeout: return False
+    return result
+
 def input_stream_reader(in_stream):
     MAGIC_BYTES = 2727221974
     shouldQuit = False
-    exitCounter = 0
 
     while not shouldQuit:
-        messageHeader = in_stream.read(16)
-
-        if len(messageHeader) == 0:
-            time.sleep(0.01)
-            exitCounter += 0.01
-            shouldQuit = exitCounter >= EXIT_AFTER_NO_DATA_FOR_N_SECONDS
-            continue
-        exitCounter = 0
+        messageHeader = read_bytes(in_stream, HEADER_SIZE, HEADER_TIMEOUT)
+        if messageHeader is False: break
 
         magicBytes, messageId, jsonSize, binarySize = struct.unpack('@4I', messageHeader)
         if magicBytes != MAGIC_BYTES:
             raise Exception(f"Wrong magic bytes! Expected {MAGIC_BYTES} and received {magicBytes}")
-        json_output = json.loads(in_stream.read(jsonSize).decode('ascii'))
+        json_output = json.loads(read_bytes(in_stream, jsonSize).decode('ascii'))
 
         if 'cameraPoses' in json_output: # Vio output
             assert(binarySize == 0)
@@ -41,13 +49,13 @@ def input_stream_reader(in_stream):
                 if "pointCloud" in keyFrame:
                     pointCloud = keyFrame["pointCloud"]
                     points = pointCloud["size"]
-                    pointCloud["positionData"] = np.frombuffer(in_stream.read(points * 4 * 3), dtype=np.float32)
+                    pointCloud["positionData"] = np.frombuffer(read_bytes(in_stream, points * 4 * 3), dtype=np.float32)
                     pointCloud["positionData"].shape = (points, 3)
                     if pointCloud["hasNormals"]:
-                        pointCloud["normalData"] = np.frombuffer(in_stream.read(points * 4 * 3), dtype=np.float32)
+                        pointCloud["normalData"] = np.frombuffer(read_bytes(in_stream, points * 4 * 3), dtype=np.float32)
                         pointCloud["normalData"].shape = (points, 3)
                     if pointCloud["hasColors"]:
-                        pointCloud["rgb24Data"] = np.frombuffer(in_stream.read(points * 3), dtype=np.ubyte)
+                        pointCloud["rgb24Data"] = np.frombuffer(read_bytes(in_stream, points * 3), dtype=np.ubyte)
                         pointCloud["rgb24Data"].shape = (points, 3)
         yield json_output
 
