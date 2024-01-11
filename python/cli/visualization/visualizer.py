@@ -450,10 +450,10 @@ class Visualizer:
         if image is not None:
             # Flip the image upside down for OpenGL.
             if not self.args.flip: image = np.ascontiguousarray(np.flipud(image))
+            output["image"] = image
             output['width'] = width
             output['height'] = height
             output['colorFormat'] = colorFormat
-
 
         if self.outputQueueMutex:
             self.outputQueue.append(output)
@@ -476,6 +476,7 @@ class Visualizer:
 
     def run(self):
         vioOutput = None
+        prevVioOutput = None
         wasTracking = False
 
         while not self.shouldQuit:
@@ -507,12 +508,20 @@ class Visualizer:
                     mapperOutput = output["mapperOutput"]
                     if wasTracking: # Don't render if not tracking. Messes up this visualization easily
                         self.map.onMappingOutput(mapperOutput)
-                    if mapperOutput.finalMap and not self.args.keepOpenAfterFinalMap:
-                        self.shouldQuit = True
+                    if mapperOutput.finalMap:
+                        if self.args.keepOpenAfterFinalMap:
+                            self.showCameraFrustum = False
+                            self.showCameraModel = False
+                            if self.args.targetFps == 0: self.args.targetFps = 30 # No vio outputs -> set 30fps mode instead
+                            if self.cameraSmooth: self.cameraSmooth.reset() # Stop camera moving automatically
+                            vioOutput = prevVioOutput
+                        else:
+                            self.shouldQuit = True
                 else:
                     print("Unknown output type: {}".format(output["type"]))
 
             if vioOutput:
+                prevVioOutput = vioOutput
                 self.__render(
                     vioOutput["cameraPose"],
                     vioOutput["width"],
