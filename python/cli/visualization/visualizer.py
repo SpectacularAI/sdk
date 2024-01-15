@@ -215,6 +215,9 @@ class VisualizerArgs:
     # Recording
     recordPath = None # Record the window to video file given by path
 
+    # Callbacks
+    customRenderCallback = None # Used to render custom OpenGL objects in user code
+
 class Recorder:
     def __init__(self, recordPath, resolution):
         import subprocess
@@ -245,6 +248,8 @@ class Visualizer:
         self.outputQueue = []
         self.outputQueueMutex = Lock()
         self.clock = pygame.time.Clock()
+        self.projectionMatrix = None
+        self.viewMatrix = None
 
         # Window
         self.fullScreen = args.fullScreen
@@ -371,9 +376,13 @@ class Visualizer:
             top = 25.0 * self.cameraControls2D.zoom / self.aspectRatio
             projectionMatrix = getOrthographicProjectionMatrixOpenGL(left, right, bottom, top, -1000.0, 1000.0)
 
+        self.projectionMatrix = projectionMatrix
+        self.viewMatrix = viewMatrix
+
         self.map.render(cameraPose.getPosition(), viewMatrix, projectionMatrix)
         if self.showGrid: self.grid.render(viewMatrix, projectionMatrix)
         if self.showPoseTrail: self.poseTrail.render(viewMatrix, projectionMatrix)
+        if self.args.customRenderCallback: self.args.customRenderCallback()
 
         if self.cameraMode in [CameraMode.THIRD_PERSON, CameraMode.TOP_VIEW]:
             modelMatrix = cameraPose.getCameraToWorldMatrix()
@@ -538,6 +547,12 @@ class Visualizer:
                 time.sleep(0.01)
 
         self.__close()
+
+    def getProjectionMatrix(self):
+        return self.projectionMatrix
+
+    def getViewMatrix(self):
+        return self.viewMatrix
 
     def printHelp(self):
         print("Control using the keyboard:")
