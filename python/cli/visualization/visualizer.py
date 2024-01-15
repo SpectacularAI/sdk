@@ -248,8 +248,6 @@ class Visualizer:
         self.outputQueue = []
         self.outputQueueMutex = Lock()
         self.clock = pygame.time.Clock()
-        self.projectionMatrix = None
-        self.viewMatrix = None
 
         # Window
         self.fullScreen = args.fullScreen
@@ -376,18 +374,20 @@ class Visualizer:
             top = 25.0 * self.cameraControls2D.zoom / self.aspectRatio
             projectionMatrix = getOrthographicProjectionMatrixOpenGL(left, right, bottom, top, -1000.0, 1000.0)
 
-        self.projectionMatrix = projectionMatrix
-        self.viewMatrix = viewMatrix
+        glMatrixMode(GL_PROJECTION)
+        glLoadMatrixf(projectionMatrix.transpose())
+        glMatrixMode(GL_MODELVIEW)
+        glLoadMatrixf(viewMatrix.transpose())
 
         self.map.render(cameraPose.getPosition(), viewMatrix, projectionMatrix)
-        if self.showGrid: self.grid.render(viewMatrix, projectionMatrix)
-        if self.showPoseTrail: self.poseTrail.render(viewMatrix, projectionMatrix)
+        if self.showGrid: self.grid.render()
+        if self.showPoseTrail: self.poseTrail.render()
         if self.args.customRenderCallback: self.args.customRenderCallback()
 
         if self.cameraMode in [CameraMode.THIRD_PERSON, CameraMode.TOP_VIEW]:
             modelMatrix = cameraPose.getCameraToWorldMatrix()
-            if self.showCameraModel: self.cameraModelRenderer.render(modelMatrix, viewMatrix, projectionMatrix)
-            if self.showCameraFrustum: self.cameraFrustumRenderer.render(modelMatrix, viewMatrix, projectionMatrix, self.cameraMode is CameraMode.TOP_VIEW)
+            if self.showCameraModel: self.cameraModelRenderer.render(modelMatrix)
+            if self.showCameraFrustum: self.cameraFrustumRenderer.render(modelMatrix, self.cameraMode is CameraMode.TOP_VIEW)
 
         if self.recorder: self.recorder.recordFrame()
         pygame.display.flip()
@@ -547,12 +547,6 @@ class Visualizer:
                 time.sleep(0.01)
 
         self.__close()
-
-    def getProjectionMatrix(self):
-        return self.projectionMatrix
-
-    def getViewMatrix(self):
-        return self.viewMatrix
 
     def printHelp(self):
         print("Control using the keyboard:")
