@@ -34,8 +34,6 @@ class CameraWireframeRenderer:
         ]
 
     def render(self, modelMatrix):
-        # TODO: remove
-        # model->camera = model->world->camera = world->camera * model->world = viewMatrix * modelMatrix
         glPushMatrix()
         glMultMatrixf(modelMatrix.transpose())
 
