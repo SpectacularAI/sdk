@@ -33,7 +33,10 @@ class CameraWireframeRenderer:
             [4, 1],
         ]
 
-    def render(self, modelMatrix, viewMatrix, projectionMatrix):
+    def render(self, modelMatrix):
+        glPushMatrix()
+        glMultMatrixf(modelMatrix.transpose())
+
         glLineWidth(self.lineWidth)
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
@@ -41,12 +44,6 @@ class CameraWireframeRenderer:
         glHint(GL_LINE_SMOOTH_HINT, GL_NICEST)
         glEnable(GL_DEPTH_TEST)
         glColor4fv(self.color)
-
-        modelView = viewMatrix @ modelMatrix
-        glMatrixMode(GL_MODELVIEW)
-        glLoadMatrixf(modelView.transpose())
-        glMatrixMode(GL_PROJECTION)
-        glLoadMatrixf(projectionMatrix.transpose())
 
         glBegin(GL_LINES)
         for edge in self.edges:
@@ -59,6 +56,7 @@ class CameraWireframeRenderer:
         glDisable(GL_BLEND)
         glDisable(GL_LINE_SMOOTH)
         glDisable(GL_DEPTH_TEST)
+        glPopMatrix()
 
 class KeyFrameRenderer:
     def __init__(self, color=np.array(DEFAULT_KEYFRAME_RGBA), scale=0.05, lineWidth=2):
@@ -75,11 +73,9 @@ class KeyFrameRenderer:
 
         for kfId in keyFrameCameraToWorldMatrices:
             modelMatrix = keyFrameCameraToWorldMatrices[kfId]
-            modelView = viewMatrix @ modelMatrix
-            glMatrixMode(GL_MODELVIEW)
-            glLoadMatrixf(modelView.transpose())
-            glMatrixMode(GL_PROJECTION)
-            glLoadMatrixf(projectionMatrix.transpose())
+
+            glPushMatrix()
+            glMultMatrixf(modelMatrix.transpose())
 
             glBegin(GL_LINES)
             for edge in self.cameraWireframe.edges:
@@ -88,6 +84,7 @@ class KeyFrameRenderer:
                 glVertex3f(p0[0], p0[1], p0[2])
                 glVertex3f(p1[0], p1[1], p1[2])
             glEnd()
+            glPopMatrix()
 
         glDisable(GL_BLEND)
         glDisable(GL_LINE_SMOOTH)
@@ -255,15 +252,8 @@ class PoseTrailRenderer:
         if self.maxLength is not None and len(self.poseTrail) > self.maxLength:
             self.poseTrail.pop(0)
 
-    def render(self, viewMatrix, projectionMatrix):
-        modelView = viewMatrix # pose trail is already in world coordinates -> model matrix is identity
-
+    def render(self):
         glLineWidth(self.lineWidth)
-        glMatrixMode(GL_MODELVIEW)
-        glLoadMatrixf(modelView.transpose())
-        glMatrixMode(GL_PROJECTION)
-        glLoadMatrixf(projectionMatrix.transpose())
-
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         glEnable(GL_LINE_SMOOTH)
@@ -289,13 +279,7 @@ class GridRenderer:
         self.lineWidth = lineWidth
         self.bounds = [-radius * length, radius * length]
 
-    def render(self, viewMatrix, projectionMatrix):
-        modelView = viewMatrix # grid is defined in world coordinates
-        glMatrixMode(GL_MODELVIEW)
-        glLoadMatrixf(modelView.transpose())
-        glMatrixMode(GL_PROJECTION)
-        glLoadMatrixf(projectionMatrix.transpose())
-
+    def render(self):
         glLineWidth(self.lineWidth)
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
@@ -389,15 +373,11 @@ class CameraFrustumRenderer:
             ]
         ]
 
-    def render(self, modelMatrix, viewMatrix, projectionMatrix, render2d):
-        modelView = viewMatrix @ modelMatrix
+    def render(self, modelMatrix, render2d):
+        glPushMatrix()
+        glMultMatrixf(modelMatrix.transpose())
 
         glLineWidth(1)
-        glMatrixMode(GL_MODELVIEW)
-        glLoadMatrixf(modelView.transpose())
-        glMatrixMode(GL_PROJECTION)
-        glLoadMatrixf(projectionMatrix.transpose())
-
         glEnable(GL_DEPTH_TEST)
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
@@ -413,6 +393,7 @@ class CameraFrustumRenderer:
             glEnd()
 
         glDisable(GL_DEPTH_TEST)
+        glPopMatrix()
 
 def createPlaneMesh(scale, position, color):
     # 3 ---- 2
