@@ -10,7 +10,7 @@ def define_args(parser):
     parser.add_argument("input", help="Path to folder with session to process")
     parser.add_argument("output", help="Output folder")
     parser.add_argument('--format', choices=['taichi', 'nerfstudio'], default='nerfstudio', help='Output format')
-    parser.add_argument("--cell_size", help="Point cloud decimation cell size", type=float, default=0.025)
+    parser.add_argument("--cell_size", help="Dense point cloud decimation cell size (meters)", type=float, default=0.1)
     parser.add_argument("--distance_quantile", help="Max point distance filter quantile (0 = disabled)", type=float, default=0.99)
     parser.add_argument("--key_frame_distance", help="Minimum distance between keyframes (meters)", type=float, default=0.05)
     parser.add_argument('--no_icp', action='store_true')
