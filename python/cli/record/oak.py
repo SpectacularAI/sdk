@@ -90,7 +90,7 @@ def record(args):
     outputFolder = args.output
     if args.auto_subfolders:
         import datetime
-        autoFolderName = datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
+        autoFolderName = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         outputFolder = os.path.join(outputFolder, autoFolderName)
 
     internalParameters = {}
@@ -189,7 +189,7 @@ def record(args):
                 videoFile = open(outputFolder + "/rgb_video.h265", "wb")
                 rgbQueue = device.getOutputQueue(name="h265-rgb", maxSize=30, blocking=False)
 
-            print("Recording!")
+            print("Recording to '{0}'".format(config.recordingFolder))
             print("")
             if plotter is not None:
                 print("Close the visualization window to stop recording")
