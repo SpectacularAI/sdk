@@ -31,9 +31,8 @@ Plug in the OAK-D and run:
 # script and as a subcommand in sai-cli.
 
 def define_args(p):
-    p.add_argument("--output", help="Recording output folder", default="data")
-    p.add_argument('--auto_subfolders', action='store_true',
-        help='Create timestamp-named subfolders for each recording')
+    p.add_argument("--output", help="Recording output folder, otherwise recording is saved to current working directory")
+    p.add_argument('--auto_subfolders', action='store_true', help='Create timestamp-named subfolders for each recording')
     p.add_argument("--use_rgb", help="Use RGB data for tracking (OAK-D S2)", action="store_true")
     p.add_argument("--mono", help="Use a single camera (not stereo)", action="store_true")
     p.add_argument("--no_rgb", help="Disable recording RGB video feed", action="store_true")
@@ -73,6 +72,13 @@ def define_subparser(subparsers):
     sub.set_defaults(func=record)
     return define_args(sub)
 
+def auto_subfolder(outputFolder):
+    import datetime
+    import os
+    autoFolderName = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    outputFolder = os.path.join(outputFolder, autoFolderName)
+    return outputFolder
+
 def record(args):
     import depthai
     import spectacularAI
@@ -87,11 +93,11 @@ def record(args):
 
     config.useSlam = True
     config.inputResolution = args.resolution
-    outputFolder = args.output
-    if args.auto_subfolders:
-        import datetime
-        autoFolderName = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        outputFolder = os.path.join(outputFolder, autoFolderName)
+    if args.output:
+        outputFolder = args.output
+        if args.auto_subfolders: outputFolder = auto_subfolder(outputFolder)
+    else:
+        outputFolder = auto_subfolder("data")
 
     internalParameters = {}
 

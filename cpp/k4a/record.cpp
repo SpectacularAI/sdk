@@ -99,7 +99,10 @@ int main(int argc, char *argv[]) {
     }
 
     // Set default recording folder if user didn't specify output
-    if (config.recordingFolder.empty()) config.recordingFolder = "data";
+    if (config.recordingFolder.empty()) {
+        autoSubfolders = true;
+        config.recordingFolder = "data";
+    }
 
     // Create timestamp-named subfolders for each recording
     if (autoSubfolders) setAutoSubfolder(config.recordingFolder);
