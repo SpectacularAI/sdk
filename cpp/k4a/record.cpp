@@ -2,6 +2,10 @@
 #include <iostream>
 #include <thread>
 #include <vector>
+#include <sstream>
+#include <iomanip>
+#include <chrono>
+#include <filesystem>
 #include <k4a/k4a.h>
 #include <k4a/k4atypes.h>
 #include <spectacularAI/k4a/plugin.hpp>
@@ -9,7 +13,8 @@
 void showUsage() {
     std::cout << "Supported arguments:" << std::endl
         << "  -h, --help Help" << std::endl
-        << "  --output <recording_folder>, recorded output" << std::endl
+        << "  --output <recording_folder>, otherwise recording is saved to current working directory" << std::endl
+        << "  --auto_subfolders, create timestamp-named subfolders for each recording" << std::endl
         << "  --recording_only, disables Vio" << std::endl
         << "  --color_res <720p, 1080p, 1440p, 1536p, 2160p, 3070p>" << std::endl
         << "  --depth_mode <1 (NVOF_2X2BINNED), 2 (NVOF_UNBINNED), 3 (WFOV_2X2BINNED), 4 (WFOV_UNBINNED)>" << std::endl
@@ -26,6 +31,18 @@ void showUsage() {
         << std::endl;
 }
 
+void setAutoSubfolder(std::string &recordingFolder) {
+    auto now = std::chrono::system_clock::now();
+    auto timePoint = std::chrono::system_clock::to_time_t(now);
+    std::tm localTime = *std::localtime(&timePoint);
+    std::ostringstream oss;
+    oss << std::put_time(&localTime, "%Y-%m-%d_%H-%M-%S");
+    std::filesystem::path basePath = recordingFolder;
+    std::filesystem::path filename = oss.str();
+    std::filesystem::path combinedPath = basePath / filename;
+    recordingFolder = combinedPath.string();
+}
+
 int main(int argc, char *argv[]) {
     std::vector<std::string> arguments(argv, argv + argc);
     std::string colorResolution = "720p";
@@ -37,11 +54,14 @@ int main(int argc, char *argv[]) {
     int32_t brightness = -1;
     spectacularAI::k4aPlugin::Configuration config;
     bool print = false;
+    bool autoSubfolders = false;
 
     for (size_t i = 1; i < arguments.size(); ++i) {
         const std::string &argument = arguments.at(i);
         if (argument == "--output")
             config.recordingFolder = arguments.at(++i);
+        else if (argument == "--auto_subfolders")
+            autoSubfolders = true;
         else if (argument == "--recording_only")
             config.recordingOnly = true;
         else if (argument == "--color_res")
@@ -78,11 +98,14 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // Require recording folder when using recording only mode.
-    if (config.recordingOnly && config.recordingFolder.empty()) {
-        std::cerr << "Record only but recording folder is not set!" << std::endl;
-        return EXIT_FAILURE;
+    // Set default recording folder if user didn't specify output
+    if (config.recordingFolder.empty()) {
+        autoSubfolders = true;
+        config.recordingFolder = "data";
     }
+
+    // Create timestamp-named subfolders for each recording
+    if (autoSubfolders) setAutoSubfolder(config.recordingFolder);
 
     // In monocular mode, disable depth camera.
     if (!config.useStereo) depthMode = K4A_DEPTH_MODE_OFF;
@@ -171,6 +194,7 @@ int main(int argc, char *argv[]) {
 
     std::atomic<bool> shouldQuit(false);
     std::thread inputThread([&]() {
+        std::cout << "Recording to '" << config.recordingFolder << "'" << std::endl;
         std::cout << "Press Enter to quit." << std::endl << std::endl;
         getchar();
         shouldQuit = true;

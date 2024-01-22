@@ -2,13 +2,18 @@
 #include <thread>
 #include <vector>
 #include <iostream>
+#include <sstream>
+#include <iomanip>
+#include <chrono>
+#include <filesystem>
 #include <librealsense2/rs.hpp>
 #include <spectacularAI/realsense/plugin.hpp>
 
 void showUsage() {
     std::cout << "Supported arguments:" << std::endl
         << "  -h, --help Help" << std::endl
-        << "  --output <recording_folder>, recorded output" << std::endl
+        << "  --output <recording_folder>, otherwise recording is saved to current working directory" << std::endl
+        << "  --auto_subfolders, create timestamp-named subfolders for each recording" << std::endl
         << "  --recording_only, disables Vio" << std::endl
         << "  --resolution <value>, 400p or 800p" << std::endl
         << "  --brightness <value>" << std::endl
@@ -22,6 +27,18 @@ void showUsage() {
         << "  --white_balance <value>" << std::endl
         << "  --print" << std::endl
         << std::endl;
+}
+
+void setAutoSubfolder(std::string &recordingFolder) {
+    auto now = std::chrono::system_clock::now();
+    auto timePoint = std::chrono::system_clock::to_time_t(now);
+    std::tm localTime = *std::localtime(&timePoint);
+    std::ostringstream oss;
+    oss << std::put_time(&localTime, "%Y-%m-%d_%H-%M-%S");
+    std::filesystem::path basePath = recordingFolder;
+    std::filesystem::path filename = oss.str();
+    std::filesystem::path combinedPath = basePath / filename;
+    recordingFolder = combinedPath.string();
 }
 
 struct ColorCameraConfig {
@@ -40,12 +57,15 @@ int main(int argc, char** argv) {
     spectacularAI::rsPlugin::Configuration config;
     ColorCameraConfig colorConfig;
     bool print = false;
+    bool autoSubfolders = false;
 
     std::vector<std::string> arguments(argv, argv + argc);
     for (size_t i = 1; i < arguments.size(); ++i) {
         const std::string &argument = arguments.at(i);
         if (argument == "--output")
             config.recordingFolder = arguments.at(++i);
+        else if (argument == "--auto_subfolders")
+            autoSubfolders = true;
         else if (argument == "--recording_only")
             config.recordingOnly = true;
         else if (argument == "--resolution")
@@ -80,10 +100,14 @@ int main(int argc, char** argv) {
         }
     }
 
+    // Set default recording folder if user didn't specify output
     if (config.recordingFolder.empty()) {
-            std::cerr << "  You must provide output folder with --output <folder> argument." << std::endl;;
-            return EXIT_FAILURE;
+        autoSubfolders = true;
+        config.recordingFolder = "data";
     }
+
+    // Create timestamp-named subfolders for each recording
+    if (autoSubfolders) setAutoSubfolder(config.recordingFolder);
 
     spectacularAI::rsPlugin::Pipeline vioPipeline(config);
 
@@ -123,6 +147,7 @@ int main(int argc, char** argv) {
 
     std::atomic<bool> shouldQuit(false);
     std::thread inputThread([&]() {
+        std::cout << "Recording to '" << config.recordingFolder << "'" << std::endl;
         std::cout << "Press Enter to quit." << std::endl << std::endl;
         getchar();
         shouldQuit = true;

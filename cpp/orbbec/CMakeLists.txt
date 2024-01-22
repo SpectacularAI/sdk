@@ -2,7 +2,7 @@ if(MSVC)
   # Windows build uses newer features
   cmake_minimum_required(VERSION 3.21)
 else()
-  cmake_minimum_required(VERSION 3.3)
+  cmake_minimum_required(VERSION 3.12)
 endif()
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake")
@@ -11,24 +11,17 @@ project(spectacularAI_orbbec_tools)
 
 if(MSVC)
   set(CMAKE_CXX_STANDARD 20)
+  set(CMAKE_CXX_STANDARD_REQUIRED ON)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP")
 else()
-  set(CMAKE_CXX_STANDARD 14)
+  set(CMAKE_CXX_STANDARD 17)
+  set(CMAKE_CXX_STANDARD_REQUIRED ON)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
 endif()
 
 find_package(Threads REQUIRED)
 find_package(spectacularAI_orbbecPlugin REQUIRED)
 find_package(OrbbecSDK REQUIRED PATHS "${OrbbecSDK_DIR}")
-
-if(MSVC) # Must be after project() is called
-  set(CMAKE_CXX_STANDARD 20)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP /Gy")
-else()
-  set(CMAKE_CXX_STANDARD 14)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
-  SET(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--exclude-libs=ALL")
-endif()
 
 set(TOOL_LIBS
   Threads::Threads
