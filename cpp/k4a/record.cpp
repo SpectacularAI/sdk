@@ -10,7 +10,10 @@
 #include <k4a/k4atypes.h>
 #include <spectacularAI/k4a/plugin.hpp>
 
+#include "visualizer.hpp"
+
 void showUsage() {
+    std::cout << "Record data for later playback from Azure Kinect" << std::endl << std::endl;
     std::cout << "Supported arguments:" << std::endl
         << "  -h, --help Help" << std::endl
         << "  --output <recording_folder>, otherwise recording is saved to current working directory" << std::endl
@@ -27,7 +30,12 @@ void showUsage() {
         << "  --whitebalance <kelvins>" << std::endl
         << "  --gain <0-255>"  << std::endl
         << "  --brightness <0-255>" << std::endl
-        << "  --print" << std::endl
+        << "  --no_preview, do not show a live preview" << std::endl
+        << "  --resolution <width,height>, window resolution (default=1280,720)" << std::endl
+        << "  --fullScreen, start in full screen mode" << std::endl
+        << "  --recordWindow, window recording filename" << std::endl
+        << "  --voxel <meters>, voxel size for downsampling point clouds (visualization only)" << std::endl
+        << "  --color, filter points without color (visualization only)" << std::endl
         << std::endl;
 }
 
@@ -45,6 +53,8 @@ void setAutoSubfolder(std::string &recordingFolder) {
 
 int main(int argc, char *argv[]) {
     std::vector<std::string> arguments(argv, argv + argc);
+
+    spectacularAI::visualization::VisualizerArgs visArgs;
     std::string colorResolution = "720p";
     int depthMode = K4A_DEPTH_MODE_WFOV_2X2BINNED;
     int frameRate = 30;
@@ -53,7 +63,7 @@ int main(int argc, char *argv[]) {
     int32_t gain = -1;
     int32_t brightness = -1;
     spectacularAI::k4aPlugin::Configuration config;
-    bool print = false;
+    bool preview = true;
     bool autoSubfolders = false;
 
     for (size_t i = 1; i < arguments.size(); ++i) {
@@ -78,8 +88,6 @@ int main(int argc, char *argv[]) {
             config.fastVio = true;
         else if (argument == "--vio_only")
             config.useSlam = false;
-        else if (argument == "--print")
-            print = true;
         else if (argument == "--exposure")
             exposureTimeMicroseconds = std::stoi(arguments.at(++i));
         else if (argument == "--whitebalance")
@@ -88,6 +96,18 @@ int main(int argc, char *argv[]) {
             gain = std::stoi(arguments.at(++i));
         else if (argument == "--brightness")
             brightness = std::stoi(arguments.at(++i));
+        else if (argument == "--no_preview")
+            preview = false;
+        else if (argument == "--resolution")
+            visArgs.resolution = arguments.at(++i);
+        else if (argument == "--fullScreen")
+            visArgs.fullScreen = true;
+        else if (argument == "--recordWindow")
+            visArgs.recordWindow = arguments.at(++i);
+        else if (argument == "--voxel")
+            visArgs.voxelSize = std::stoi(arguments.at(++i));
+        else if (argument == "--color")
+            visArgs.colorOnly = true;
         else if (argument == "--help" || argument == "-h") {
             showUsage();
             return EXIT_SUCCESS;
@@ -113,8 +133,22 @@ int main(int argc, char *argv[]) {
     // Get configuration for k4a device.
     config.k4aConfig = spectacularAI::k4aPlugin::getK4AConfiguration(colorResolution, depthMode, frameRate, config.useStereo);
 
+    std::function<void(spectacularAI::mapping::MapperOutputPtr)> mappingCallback = nullptr;
+    std::unique_ptr<spectacularAI::visualization::Visualizer> visualizer;
+    if (preview) {
+        visualizer = std::make_unique<spectacularAI::visualization::Visualizer>(visArgs);
+
+        config.internalParameters = {
+            {"computeStereoPointCloud", "true"} // enables point cloud colors
+        };
+
+        mappingCallback = [&](spectacularAI::mapping::MapperOutputPtr mappingOutput) {
+            visualizer->onMappingOutput(mappingOutput);
+        };
+    }
+
     // Create vio pipeline using the config
-    spectacularAI::k4aPlugin::Pipeline vioPipeline(config);
+    spectacularAI::k4aPlugin::Pipeline vioPipeline(config, mappingCallback);
 
     k4a_device_t deviceHandle = vioPipeline.getDeviceHandle();
     if (exposureTimeMicroseconds > 0) {
@@ -191,31 +225,34 @@ int main(int argc, char *argv[]) {
 
     // Start k4a device and vio
     auto session = vioPipeline.startSession();
+    std::cout << "Recording to '" << config.recordingFolder << "'" << std::endl;
 
     std::atomic<bool> shouldQuit(false);
-    std::thread inputThread([&]() {
-        std::cout << "Recording to '" << config.recordingFolder << "'" << std::endl;
-        std::cout << "Press Enter to quit." << std::endl << std::endl;
-        getchar();
-        shouldQuit = true;
-    });
-
-    while (!shouldQuit) {
-        if (session->hasOutput()) {
-            auto out = session->getOutput();
-            if (print) {
-                std::cout << "Vio API pose: " << out->pose.time << ", " << out->pose.position.x
-                          << ", " << out->pose.position.y << ", " << out->pose.position.z << ", "
-                          << out->pose.orientation.x << ", " << out->pose.orientation.y << ", "
-                          << out->pose.orientation.z << ", " << out->pose.orientation.w
-                          << std::endl;
+    if (visualizer) {
+        std::thread captureLoop([&]() {
+            while (!shouldQuit) {
+                if (session->hasOutput()) visualizer->onVioOutput(session->getOutput());
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
+        });
+        visualizer->run();
+        shouldQuit = true;
+        captureLoop.join();
+    } else {
+        std::thread inputThread([&]() {
+            std::cout << "Press Enter to quit." << std::endl << std::endl;
+            getchar();
+            shouldQuit = true;
+        });
 
-    std::cout << "Exiting." << std::endl;
-    if (shouldQuit) inputThread.join();
+        while (!shouldQuit) {
+            if (session->hasOutput()) session->getOutput(); // discard outputs
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+
+        std::cout << "Exiting." << std::endl;
+        inputThread.join();
+    }
 
     return EXIT_SUCCESS;
 }

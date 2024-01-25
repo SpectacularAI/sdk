@@ -1,9 +1,7 @@
 """
-An example code to deserialize data serialized by cpp/mapping_visu C++ example
+Deserializes SLAM data serialized by C++ serialization
 """
 
-# Needed when SLAM is disabled (no final map flag to indicate end of data)
-HEADER_TIMEOUT = 5
 HEADER_SIZE = 16
 
 import struct
@@ -12,7 +10,7 @@ import numpy as np
 import spectacularAI
 import time
 
-def read_bytes(in_stream, n, timeout=0):
+def read_bytes(in_stream, n):
     dt = 0
     result = b""  # Initialize an empty bytes object
     while n > 0:
@@ -23,7 +21,6 @@ def read_bytes(in_stream, n, timeout=0):
         else:
             time.sleep(0.01)
             dt += 0.01
-            if timeout > 0 and dt > timeout: return False
     return result
 
 def input_stream_reader(in_stream):
@@ -31,7 +28,7 @@ def input_stream_reader(in_stream):
     shouldQuit = False
 
     while not shouldQuit:
-        messageHeader = read_bytes(in_stream, HEADER_SIZE, HEADER_TIMEOUT)
+        messageHeader = read_bytes(in_stream, HEADER_SIZE)
         if messageHeader is False: break
 
         magicBytes, messageId, jsonSize, binarySize = struct.unpack('@4I', messageHeader)

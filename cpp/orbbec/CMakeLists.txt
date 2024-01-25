@@ -5,8 +5,6 @@ else()
   cmake_minimum_required(VERSION 3.12)
 endif()
 
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake")
-
 project(spectacularAI_orbbec_tools)
 
 if(MSVC)
@@ -20,21 +18,27 @@ else()
 endif()
 
 find_package(Threads REQUIRED)
-find_package(spectacularAI_orbbecPlugin REQUIRED)
 find_package(OrbbecSDK REQUIRED PATHS "${OrbbecSDK_DIR}")
+find_package(spectacularAI_orbbecPlugin REQUIRED)
+
+set(JSON_Install OFF CACHE INTERNAL "")
+set(JSON_BuildTests OFF CACHE INTERNAL "")
+add_subdirectory("../visualization/json" json)
 
 set(TOOL_LIBS
   Threads::Threads
+  OrbbecSDK::OrbbecSDK
   spectacularAI::orbbecPlugin
-  OrbbecSDK::OrbbecSDK)
+  nlohmann_json::nlohmann_json)
 
 # enables searching for dynamic libraries from the relative path ../lib
 if(NOT MSVC)
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath='$ORIGIN/../lib:$ORIGIN/../lib/3rdparty'")
 endif()
 
-add_executable(sai-record-orbbec record.cpp)
+add_executable(sai-record-orbbec record.cpp ../visualization/serialization.cpp ../visualization/visualizer.cpp)
 target_link_libraries(sai-record-orbbec ${TOOL_LIBS})
+target_include_directories(sai-record-orbbec PRIVATE "../visualization")
 
 if(MSVC)
   add_custom_command(TARGET sai-record-orbbec POST_BUILD
