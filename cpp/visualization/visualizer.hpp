@@ -15,6 +15,7 @@ struct VisualizerArgs {
     bool fullScreen = false;
     bool colorOnly = false;
     float voxelSize = 0;
+    int targetFps = 30;
 };
 
 class Visualizer {

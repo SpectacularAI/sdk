@@ -18,6 +18,7 @@ def parseArgs():
     import argparse
     p = argparse.ArgumentParser(__doc__)
     p.add_argument("--resolution", help="Window resolution", default="1280x720")
+    p.add_argument("--fps", type=int, default=30, help="Window target fps")
     p.add_argument("--fullScreen", help="Start in full screen mode", action="store_true")
     p.add_argument("--recordWindow", help="Window recording filename")
     p.add_argument("--voxel", type=float, help="Voxel size (m) for downsampling point clouds")
@@ -29,6 +30,7 @@ if __name__ == '__main__':
 
     visArgs = VisualizerArgs()
     visArgs.resolution = args.resolution
+    visArgs.targetFps = args.fps
     visArgs.fullScreen = args.fullScreen
     visArgs.recordPath = args.recordWindow
     visArgs.pointCloudVoxelSize = args.voxel
@@ -79,6 +81,7 @@ bool runPythonVisualizer(const VisualizerArgs &args) {
 
     std::stringstream ss;
     ss << " --resolution " << r.first << "x" << r.second;
+    ss << " --fps " << args.targetFps;
     if (args.fullScreen)
         ss << " --fullScreen";
     if (!args.recordWindow.empty())

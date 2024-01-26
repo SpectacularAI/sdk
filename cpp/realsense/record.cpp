@@ -30,6 +30,7 @@ void showUsage() {
         << "  --white_balance <value>" << std::endl
         << "  --no_preview, do not show a live preview" << std::endl
         << "  --resolution <width,height>, window resolution (default=1280,720)" << std::endl
+        << "  --preview_fps <fps>, window fps (default=30)" << std::endl
         << "  --fullscreen, start in fullscreen mode" << std::endl
         << "  --record_window, window recording filename" << std::endl
         << "  --voxel <meters>, voxel size for downsampling point clouds (visualization only)" << std::endl
@@ -103,6 +104,8 @@ int main(int argc, char** argv) {
             preview = false;
         else if (argument == "--resolution")
             visArgs.resolution = arguments.at(++i);
+        else if (argument == "preview_fps")
+            visArgs.targetFps = std::stoi(arguments.at(++i));
         else if (argument == "--fullscreen")
             visArgs.fullScreen = true;
         else if (argument == "--record_window")

@@ -467,8 +467,9 @@ class Visualizer:
         if self.outputQueueMutex:
             self.outputQueue.append(output)
 
-        # Blocks VIO until previous outputs have been processed
-        while len(self.outputQueue) > 5:
+        # In live mode, future vio outputs are discarded
+        # In replay mode, Replay API is blocked -> no more vio outputs
+        while self.shouldPause:
             time.sleep(0.01)
             if self.shouldQuit: break
 
@@ -511,8 +512,11 @@ class Visualizer:
                         if wasTracking:
                             self.__resetAfterLost()
                             wasTracking = False
-                    # Drop vio outputs if target fps is too low
+
+                    # Render on all outputs if using target fps 0 (i.e. render on vio output mode)
+                    # unless they were dropped because visualization is running too slow.
                     if self.args.targetFps == 0: break
+
                 elif output["type"] == "slam":
                     mapperOutput = output["mapperOutput"]
                     if wasTracking: # Don't render if not tracking. Messes up this visualization easily
