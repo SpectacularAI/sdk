@@ -30,10 +30,11 @@ void showUsage() {
         << "  --white_balance <value>" << std::endl
         << "  --no_preview, do not show a live preview" << std::endl
         << "  --resolution <width,height>, window resolution (default=1280,720)" << std::endl
-        << "  --fullScreen, start in full screen mode" << std::endl
-        << "  --recordWindow, window recording filename" << std::endl
+        << "  --fullscreen, start in fullscreen mode" << std::endl
+        << "  --record_window, window recording filename" << std::endl
         << "  --voxel <meters>, voxel size for downsampling point clouds (visualization only)" << std::endl
         << "  --color, filter points without color (visualization only)" << std::endl
+        << "  --no_record, disable recording" << std::endl
         << std::endl;
 }
 
@@ -67,6 +68,7 @@ int main(int argc, char** argv) {
     spectacularAI::visualization::VisualizerArgs visArgs;
     bool preview = true;
     bool autoSubfolders = false;
+    bool disableRecording = false;
 
     std::vector<std::string> arguments(argv, argv + argc);
     for (size_t i = 1; i < arguments.size(); ++i) {
@@ -101,14 +103,16 @@ int main(int argc, char** argv) {
             preview = false;
         else if (argument == "--resolution")
             visArgs.resolution = arguments.at(++i);
-        else if (argument == "--fullScreen")
+        else if (argument == "--fullscreen")
             visArgs.fullScreen = true;
-        else if (argument == "--recordWindow")
+        else if (argument == "--record_window")
             visArgs.recordWindow = arguments.at(++i);
         else if (argument == "--voxel")
             visArgs.voxelSize = std::stoi(arguments.at(++i));
         else if (argument == "--color")
             visArgs.colorOnly = true;
+        else if (argument == "--no_record")
+            disableRecording = true;
         else if (argument == "--help" || argument == "-h") {
             showUsage();
             return EXIT_SUCCESS;
@@ -127,6 +131,9 @@ int main(int argc, char** argv) {
 
     // Create timestamp-named subfolders for each recording
     if (autoSubfolders) setAutoSubfolder(config.recordingFolder);
+
+    // Disable recording?
+    if (disableRecording) config.recordingFolder = "";
 
     std::function<void(spectacularAI::mapping::MapperOutputPtr)> mappingCallback = nullptr;
     std::unique_ptr<spectacularAI::visualization::Visualizer> visualizer;
@@ -178,7 +185,7 @@ int main(int argc, char** argv) {
     rs2::config rsConfig;
     vioPipeline.configureStreams(rsConfig);
     auto session = vioPipeline.startSession(rsConfig);
-    std::cout << "Recording to '" << config.recordingFolder << "'" << std::endl;
+    if (!disableRecording) std::cout << "Recording to '" << config.recordingFolder << "'" << std::endl;
 
     std::atomic<bool> shouldQuit(false);
     if (visualizer) {
