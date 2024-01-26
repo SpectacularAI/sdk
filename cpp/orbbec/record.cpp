@@ -4,13 +4,11 @@
 #include <thread>
 #include <vector>
 #include <sstream>
-#include <iomanip>
-#include <chrono>
-#include <filesystem>
 #include <libobsensor/ObSensor.hpp>
 #include <spectacularAI/orbbec/plugin.hpp>
 
 #include "visualizer.hpp"
+#include "helpers.hpp"
 
 void showUsage() {
     std::cout << "Record data for later playback from Orbbec devices" << std::endl << std::endl;
@@ -93,18 +91,6 @@ std::pair<int, int> tryParseResolution(const std::string &s) {
         std::cerr << "Failed to parse resolution from " << s << std::endl;
         exit(EXIT_FAILURE);
     }
-}
-
-void setAutoSubfolder(std::string &recordingFolder) {
-    auto now = std::chrono::system_clock::now();
-    auto timePoint = std::chrono::system_clock::to_time_t(now);
-    std::tm localTime = *std::localtime(&timePoint);
-    std::ostringstream oss;
-    oss << std::put_time(&localTime, "%Y-%m-%d_%H-%M-%S");
-    std::filesystem::path basePath = recordingFolder;
-    std::filesystem::path filename = oss.str();
-    std::filesystem::path combinedPath = basePath / filename;
-    recordingFolder = combinedPath.string();
 }
 
 int main(int argc, char *argv[]) {

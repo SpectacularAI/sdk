@@ -2,14 +2,11 @@
 #include <thread>
 #include <vector>
 #include <iostream>
-#include <sstream>
-#include <iomanip>
-#include <chrono>
-#include <filesystem>
 #include <librealsense2/rs.hpp>
 #include <spectacularAI/realsense/plugin.hpp>
 
 #include "visualizer.hpp"
+#include "helpers.hpp"
 
 void showUsage() {
     std::cout << "Record data for later playback from Realsense devices" << std::endl << std::endl;
@@ -37,18 +34,6 @@ void showUsage() {
         << "  --color, filter points without color (visualization only)" << std::endl
         << "  --no_record, disable recording" << std::endl
         << std::endl;
-}
-
-void setAutoSubfolder(std::string &recordingFolder) {
-    auto now = std::chrono::system_clock::now();
-    auto timePoint = std::chrono::system_clock::to_time_t(now);
-    std::tm localTime = *std::localtime(&timePoint);
-    std::ostringstream oss;
-    oss << std::put_time(&localTime, "%Y-%m-%d_%H-%M-%S");
-    std::filesystem::path basePath = recordingFolder;
-    std::filesystem::path filename = oss.str();
-    std::filesystem::path combinedPath = basePath / filename;
-    recordingFolder = combinedPath.string();
 }
 
 struct ColorCameraConfig {
