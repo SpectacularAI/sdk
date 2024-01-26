@@ -81,6 +81,25 @@ def auto_subfolder(outputFolder):
     outputFolder = os.path.join(outputFolder, autoFolderName)
     return outputFolder
 
+def list_oakd_devices():
+    import depthai
+    print('Searching for all available devices...\n')
+    infos: List[depthai.DeviceInfo] = depthai.DeviceBootloader.getAllAvailableDevices()
+    if len(infos) == 0:
+        print("Couldn't find any available devices.")
+        return
+    for info in infos:
+        with depthai.Device(depthai.Pipeline(), info, depthai.UsbSpeed.SUPER_PLUS) as device:
+            calib = device.readCalibration()
+            eeprom = calib.getEepromData()
+            state = str(info.state).split('X_LINK_')[1] # Converts enum eg. 'XLinkDeviceState.X_LINK_UNBOOTED' to 'UNBOOTED'
+            print(f"Found device '{info.name}', MxId: '{info.mxid}'")
+            print(f"    State: {state}")
+            print(f"    Product name: {eeprom.productName}")
+            print(f"    Board name: {eeprom.boardName}")
+            print(f"    Camera sensors: {device.getCameraSensorNames()}")
+
+
 def record(args):
     import depthai
     import spectacularAI
@@ -181,9 +200,12 @@ def record(args):
 
         deviceInfo = None
         if args.mxid: deviceInfo = depthai.DeviceInfo(args.mxid)
+        def createDevice():
+            if deviceInfo:
+                return depthai.Device(pipeline, deviceInfo=deviceInfo, maxUsbSpeed=depthai.UsbSpeed.SUPER_PLUS)
+            return depthai.Device(pipeline)
 
-        with depthai.Device(pipeline, deviceInfo) as device, \
-            vio_pipeline.startSession(device) as vio_session:
+        with createDevice() as device, vio_pipeline.startSession(device) as vio_session:
 
             if args.ir_dot_brightness > 0:
                 device.setIrLaserDotProjectorBrightness(args.ir_dot_brightness)
