@@ -95,7 +95,7 @@ int main(int argc, char *argv[]) {
         else if (argument == "--record_window")
             visArgs.recordWindow = arguments.at(++i);
         else if (argument == "--voxel")
-            visArgs.voxelSize = std::stoi(arguments.at(++i));
+            visArgs.voxelSize = std::stof(arguments.at(++i));
         else if (argument == "--color")
             visArgs.colorOnly = true;
         else if (argument == "--no_record")
