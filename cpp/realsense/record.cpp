@@ -89,7 +89,7 @@ int main(int argc, char** argv) {
             preview = false;
         else if (argument == "--resolution")
             visArgs.resolution = arguments.at(++i);
-        else if (argument == "preview_fps")
+        else if (argument == "--preview_fps")
             visArgs.targetFps = std::stoi(arguments.at(++i));
         else if (argument == "--fullscreen")
             visArgs.fullScreen = true;
