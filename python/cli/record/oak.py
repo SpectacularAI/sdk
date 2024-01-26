@@ -60,6 +60,8 @@ def define_args(p):
     p.add_argument("--resolution", help="Gray input resolution (gray)",
         default='400p',
         choices=['400p', '800p', '1200p'])
+    p.add_argument('--mxid', help="Specific OAK-D device's MxID you want to use, if you have multiple devices connected")
+    p.add_argument('--list_devices', help="List connected OAK-D devices", action="store_true")
 
     return p
 
@@ -87,6 +89,10 @@ def record(args):
     import json
     import threading
     import time
+
+    if args.list_devices:
+        list_oakd_devices()
+        return
 
     config = spectacularAI.depthai.Configuration()
     pipeline = depthai.Pipeline()
@@ -173,7 +179,10 @@ def record(args):
     def main_loop(plotter=None):
         frame_number = 1
 
-        with depthai.Device(pipeline) as device, \
+        deviceInfo = None
+        if args.mxid: deviceInfo = depthai.DeviceInfo(args.mxid)
+
+        with depthai.Device(pipeline, deviceInfo) as device, \
             vio_pipeline.startSession(device) as vio_session:
 
             if args.ir_dot_brightness > 0:
