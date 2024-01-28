@@ -26,23 +26,21 @@ class MeshProgram:
 
 class MeshRenderer:
     meshProgram = None
-    mesh = None
-    updated = False
-    vbo_position = None
-    vbo_color = None
-    ebo = None
 
     def __init__(self, mesh=None, opacity=1.0):
         self.mesh = mesh
         self.updated = mesh is not None
         self.opacity = opacity
+        self.vbo_position = None
+        self.vbo_color = None
+        self.ebo = None
 
     def render(self, modelMatrix, viewMatrix, projectionMatrix):
-        if self.meshProgram is None:
+        if MeshRenderer.meshProgram is None:
             assetDir = pathlib.Path(__file__).resolve().parent
             vert = (assetDir / "mesh.vert").read_text()
             frag = (assetDir / "mesh.frag").read_text()
-            self.meshProgram = MeshProgram(createProgram(vert, frag))
+            MeshRenderer.meshProgram = MeshProgram(createProgram(vert, frag))
 
         if self.mesh is None: return
         modelView = viewMatrix @ modelMatrix
@@ -53,10 +51,10 @@ class MeshRenderer:
         if self.opacity >= 1.0: glDepthMask(GL_TRUE)
         else: glDepthMask(GL_FALSE)
 
-        glUseProgram(self.meshProgram.program)
-        glUniformMatrix4fv(self.meshProgram.uniformModelView, 1, GL_FALSE, modelView.transpose())
-        glUniformMatrix4fv(self.meshProgram.uniformProjection, 1, GL_FALSE, projectionMatrix.transpose())
-        glUniform1f(self.meshProgram.uniformOpacity, self.opacity)
+        glUseProgram(MeshRenderer.meshProgram.program)
+        glUniformMatrix4fv(MeshRenderer.meshProgram.uniformModelView, 1, GL_FALSE, modelView.transpose())
+        glUniformMatrix4fv(MeshRenderer.meshProgram.uniformProjection, 1, GL_FALSE, projectionMatrix.transpose())
+        glUniform1f(MeshRenderer.meshProgram.uniformOpacity, self.opacity)
 
         if self.updated:
             self.updated = False
