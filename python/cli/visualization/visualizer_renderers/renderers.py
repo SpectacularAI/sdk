@@ -131,7 +131,8 @@ class MapRenderer:
             # Remove deleted key frames from visualisation
             if not keyFrame:
                 self.keyFrameCameraToWorldMatrices.pop(kfId, None)
-                self.pointCloudRenderers.pop(kfId, None)
+                rendr = self.pointCloudRenderers.pop(kfId, None)
+                if rendr is not None: rendr.cleanup()
                 continue
 
             primaryFrame = keyFrame.frameSet.primaryFrame

@@ -62,6 +62,12 @@ class PointCloudRenderer:
         self.maxZ = 0.0 if maxZ is None else maxZ
         self.colorMapScale = 0.05 * colorMapScale
 
+    def __del__(self):
+        if self.vboPosition is not None or \
+           self.vboColor is not None or \
+           self.vboNormal is not None:
+            print("Warning! PointCloudRenderer::cleanup() was not called. Did not cleanup OpenGL resources!")
+
     def render(self, modelMatrix, viewMatrix, projectionMatrix):
         if PointCloudRenderer.pcProgram is None:
             assetDir = pathlib.Path(__file__).resolve().parent
@@ -95,16 +101,7 @@ class PointCloudRenderer:
 
         if self.updated:
             self.updated = False
-
-            # Delete old VBOs
-            if self.vboPosition is not None:
-                glDeleteBuffers(1, [self.vboPosition])
-
-            if self.vboColor is not None:
-                glDeleteBuffers(1, [self.vboColor])
-
-            if self.vboNormal is not None:
-                glDeleteBuffers(1, [self.vboNormal])
+            self.cleanup()
 
             # Create new VBOs
             self.vboPosition = glGenBuffers(1)
@@ -164,3 +161,18 @@ class PointCloudRenderer:
 
     def setCameraPositionWorld(self, position):
         self.cameraPositionWorld = position
+
+    # Must be called from the OpenGL thread
+    def cleanup(self):
+        # Delete old VBOs
+        if self.vboPosition is not None:
+            glDeleteBuffers(1, [self.vboPosition])
+            self.vboPosition = None
+
+        if self.vboColor is not None:
+            glDeleteBuffers(1, [self.vboColor])
+            self.vboColor = None
+
+        if self.vboNormal is not None:
+            glDeleteBuffers(1, [self.vboNormal])
+            self.vboNormal = None

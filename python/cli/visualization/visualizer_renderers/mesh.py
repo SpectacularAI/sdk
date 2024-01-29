@@ -35,6 +35,12 @@ class MeshRenderer:
         self.vbo_color = None
         self.ebo = None
 
+    def __del__(self):
+        if self.vboPosition is not None or \
+           self.vboColor is not None or \
+           self.ebo is not None:
+            print("Warning! MeshRenderer::cleanup() was not called. Did not cleanup OpenGL resources!")
+
     def render(self, modelMatrix, viewMatrix, projectionMatrix):
         if MeshRenderer.meshProgram is None:
             assetDir = pathlib.Path(__file__).resolve().parent
@@ -58,10 +64,7 @@ class MeshRenderer:
 
         if self.updated:
             self.updated = False
-
-            # Delete old VBOs
-            if self.vbo_position is not None:
-                glDeleteBuffers(1, [self.vbo_position, self.vbo_color, self.ebo])
+            self.cleanup()
 
             # Create new VBOs
             self.vbo_position = glGenBuffers(1)
@@ -104,4 +107,11 @@ class MeshRenderer:
 
     def setOpacity(self, opacity):
         self.opacity = opacity
+
+    # Must be called from the OpenGL thread
+    def cleanup(self):
+        # Delete old VBOs
+        if self.vboPosition is not None:
+            glDeleteBuffers(1, [self.vboPosition, self.vboColor, self.ebo])
+
 
