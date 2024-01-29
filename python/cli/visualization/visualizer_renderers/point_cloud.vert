@@ -10,6 +10,8 @@ uniform mat4 u_Projection;
 uniform vec3 u_CameraPositionWorld;
 uniform float u_PointSize;
 uniform float u_Opacity;
+uniform float u_maxZ;
+uniform float u_colorMapScale;
 // 0 = original colors
 // 1 = x
 // 2 = y
@@ -21,9 +23,6 @@ uniform int u_HasColor;  // 0 == false, otherwise true
 uniform int u_HasNormal;  // 0 == false, otherwise true
 
 out vec4 frag_Color;
-
-const float MAX_Z = float({MAX_Z});
-const float COLOR_MAP_SCALE = float({COLOR_MAP_SCALE});
 
 vec3 colorMapJET(float value) {
     float r = clamp(1.5 - abs(3.0 - 4.0 * value), 0.0, 1.0);
@@ -45,25 +44,25 @@ void main() {
     vec3 color = vec3(0.0, 0.17, 0.21); // default color
     float opacity = u_Opacity;
 
-    if (MAX_Z != float(0.0) && v_PositionWorld.z > MAX_Z) {
+    if (u_maxZ != float(0.0) && v_PositionWorld.z > u_maxZ) {
         // discard
         gl_Position.w = 0;
     } else {
         switch (u_ColorMode) {
             case 1:
-                color = colorMapJET(0.5 - v_PositionWorld.x * COLOR_MAP_SCALE);
+                color = colorMapJET(0.5 - v_PositionWorld.x * u_colorMapScale);
                 break;
 
             case 2:
-                color = colorMapJET(0.5 - v_PositionWorld.y * COLOR_MAP_SCALE);
+                color = colorMapJET(0.5 - v_PositionWorld.y * u_colorMapScale);
                 break;
 
             case 3:
-                color = colorMapJET(0.5 + v_PositionWorld.z * COLOR_MAP_SCALE * 2.0);
+                color = colorMapJET(0.5 + v_PositionWorld.z * u_colorMapScale * 2.0);
                 break;
 
             case 4:
-                float depth = length(v_PositionWorld.xyz - u_CameraPositionWorld.xyz) * COLOR_MAP_SCALE * 5.0;
+                float depth = length(v_PositionWorld.xyz - u_CameraPositionWorld.xyz) * u_colorMapScale * 5.0;
                 color = colorMapJET(exp(-depth*0.5));
                 break;
 

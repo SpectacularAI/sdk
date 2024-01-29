@@ -56,10 +56,15 @@ def define_args(p):
     p.add_argument('--map', help='Record SLAM map', action="store_true")
     p.add_argument('--no_feature_tracker', help='Disable on-device feature tracking', action="store_true")
     p.add_argument('--vio_auto_exposure', help='Enable SpectacularAI auto exposure which optimizes exposure parameters for VIO performance (BETA)', action="store_true")
+    p.add_argument('--white_balance', help='Set manual camera white balance temperature (K)', type=int)
+    p.add_argument('--exposure', help='Set manual camera exposure (us)', type=int)
+    p.add_argument('--sensitivity', help='Set camera sensitivity (iso)', type=int)
     p.add_argument('--ir_dot_brightness', help='OAK-D Pro (W) IR laser projector brightness (mA), 0 - 1200', type=float, default=0)
     p.add_argument("--resolution", help="Gray input resolution (gray)",
         default='400p',
         choices=['400p', '800p', '1200p'])
+    p.add_argument('--mxid', help="Specific OAK-D device's MxID you want to use, if you have multiple devices connected")
+    p.add_argument('--list_devices', help="List connected OAK-D devices", action="store_true")
 
     return p
 
@@ -79,6 +84,25 @@ def auto_subfolder(outputFolder):
     outputFolder = os.path.join(outputFolder, autoFolderName)
     return outputFolder
 
+def list_oakd_devices():
+    import depthai
+    print('Searching for all available devices...\n')
+    infos: List[depthai.DeviceInfo] = depthai.DeviceBootloader.getAllAvailableDevices()
+    if len(infos) == 0:
+        print("Couldn't find any available devices.")
+        return
+    for info in infos:
+        with depthai.Device(depthai.Pipeline(), info, depthai.UsbSpeed.SUPER_PLUS) as device:
+            calib = device.readCalibration()
+            eeprom = calib.getEepromData()
+            state = str(info.state).split('X_LINK_')[1] # Converts enum eg. 'XLinkDeviceState.X_LINK_UNBOOTED' to 'UNBOOTED'
+            print(f"Found device '{info.name}', MxId: '{info.mxid}'")
+            print(f"    State: {state}")
+            print(f"    Product name: {eeprom.productName}")
+            print(f"    Board name: {eeprom.boardName}")
+            print(f"    Camera sensors: {device.getCameraSensorNames()}")
+
+
 def record(args):
     import depthai
     import spectacularAI
@@ -87,6 +111,10 @@ def record(args):
     import json
     import threading
     import time
+
+    if args.list_devices:
+        list_oakd_devices()
+        return
 
     config = spectacularAI.depthai.Configuration()
     pipeline = depthai.Pipeline()
@@ -169,12 +197,31 @@ def record(args):
         create_gray_encoder(vio_pipeline.stereo.rectifiedLeft, 'left')
         create_gray_encoder(vio_pipeline.stereo.rectifiedRight, 'right')
 
+    cameraControlQueueNames = []
+    if args.white_balance or args.exposure or args.sensitivity:
+        def create_rgb_camera_control(colorCameraNode):
+            controlName = f"control_{len(cameraControlQueueNames)}"
+            cameraControlQueueNames.append(controlName)
+            controlIn = pipeline.create(depthai.node.XLinkIn)
+            controlIn.setStreamName(controlName)
+            controlIn.out.link(colorCameraNode.inputControl)
+        if vio_pipeline.colorLeft: create_rgb_camera_control(vio_pipeline.colorLeft)
+        if vio_pipeline.colorRight: create_rgb_camera_control(vio_pipeline.colorRight)
+        if vio_pipeline.monoLeft: create_rgb_camera_control(vio_pipeline.monoLeft)
+        if vio_pipeline.monoRight: create_rgb_camera_control(vio_pipeline.monoRight)
+
     should_quit = threading.Event()
     def main_loop(plotter=None):
         frame_number = 1
 
-        with depthai.Device(pipeline) as device, \
-            vio_pipeline.startSession(device) as vio_session:
+        deviceInfo = None
+        if args.mxid: deviceInfo = depthai.DeviceInfo(args.mxid)
+        def createDevice():
+            if deviceInfo:
+                return depthai.Device(pipeline, deviceInfo=deviceInfo, maxUsbSpeed=depthai.UsbSpeed.SUPER_PLUS)
+            return depthai.Device(pipeline)
+
+        with createDevice() as device, vio_pipeline.startSession(device) as vio_session:
 
             if args.ir_dot_brightness > 0:
                 device.setIrLaserDotProjectorBrightness(args.ir_dot_brightness)
@@ -194,6 +241,18 @@ def record(args):
             if rgb_as_video:
                 videoFile = open(outputFolder + "/rgb_video.h265", "wb")
                 rgbQueue = device.getOutputQueue(name="h265-rgb", maxSize=30, blocking=False)
+
+            if args.white_balance or args.exposure or args.sensitivity:
+                for controlName in cameraControlQueueNames:
+                    cameraControlQueue = device.getInputQueue(name=controlName)
+                    ctrl = depthai.CameraControl()
+                    if args.exposure or args.sensitivity:
+                        if not (args.exposure and args.sensitivity):
+                            raise Exception("If exposure or sensitivity is given, then both of them must be given")
+                        ctrl.setManualExposure(args.exposure, args.sensitivity)
+                    if args.white_balance:
+                        ctrl.setManualWhiteBalance(args.white_balance)
+                    cameraControlQueue.send(ctrl)
 
             print("Recording to '{0}'".format(config.recordingFolder))
             print("")

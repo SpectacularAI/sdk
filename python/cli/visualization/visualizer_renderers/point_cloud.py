@@ -43,10 +43,13 @@ class PointCloudProgram:
         self.uniformColorMode = glGetUniformLocation(self.program, "u_ColorMode")
         self.uniformHasColor = glGetUniformLocation(self.program, "u_HasColor")
         self.uniformHasNormal = glGetUniformLocation(self.program, "u_HasNormal")
+        self.uniformMaxZ = glGetUniformLocation(self.program, "u_maxZ")
+        self.uniformColorMapScale = glGetUniformLocation(self.program, "u_colorMapScale")
 
 class PointCloudRenderer:
+    pcProgram = None
+
     def __init__(self, pointCloud=None, pointSize=1.0, opacity=1.0, maxZ=None, colorMapScale=1.0):
-        self.pcProgram = None
         self.pointCloud = pointCloud
         self.vboPosition = None
         self.vboColor = None
@@ -60,18 +63,11 @@ class PointCloudRenderer:
         self.colorMapScale = 0.05 * colorMapScale
 
     def render(self, modelMatrix, viewMatrix, projectionMatrix):
-        if self.pcProgram is None:
+        if PointCloudRenderer.pcProgram is None:
             assetDir = pathlib.Path(__file__).resolve().parent
             pcVert = (assetDir / "point_cloud.vert").read_text()
-            # Poor man's GLSL templates
-            replaceMap = {
-                '{MAX_Z}': str(self.maxZ),
-                '{COLOR_MAP_SCALE}': str(self.colorMapScale)
-            }
-            for k, v in replaceMap.items():
-                pcVert = pcVert.replace(k, v)
             pcFrag = (assetDir / "point_cloud.frag").read_text()
-            self.pcProgram = PointCloudProgram(createProgram(pcVert, pcFrag))
+            PointCloudRenderer.pcProgram = PointCloudProgram(createProgram(pcVert, pcFrag))
 
         if self.pointCloud is None: return
 
@@ -83,17 +79,19 @@ class PointCloudRenderer:
         if self.opacity >= 1.0: glDepthMask(GL_TRUE)
         else: glDepthMask(GL_FALSE)
 
-        glUseProgram(self.pcProgram.program)
-        glUniformMatrix4fv(self.pcProgram.uniformModel, 1, GL_FALSE, modelMatrix.transpose())
-        glUniformMatrix4fv(self.pcProgram.uniformView, 1, GL_FALSE, viewMatrix.transpose())
-        glUniformMatrix4fv(self.pcProgram.uniformProjection, 1, GL_FALSE, projectionMatrix.transpose())
-        glUniform3f(self.pcProgram.uniformCameraPositionWorld, self.cameraPositionWorld[0], self.cameraPositionWorld[1], self.cameraPositionWorld[2])
+        glUseProgram(PointCloudRenderer.pcProgram.program)
+        glUniformMatrix4fv(PointCloudRenderer.pcProgram.uniformModel, 1, GL_FALSE, modelMatrix.transpose())
+        glUniformMatrix4fv(PointCloudRenderer.pcProgram.uniformView, 1, GL_FALSE, viewMatrix.transpose())
+        glUniformMatrix4fv(PointCloudRenderer.pcProgram.uniformProjection, 1, GL_FALSE, projectionMatrix.transpose())
+        glUniform3f(PointCloudRenderer.pcProgram.uniformCameraPositionWorld, self.cameraPositionWorld[0], self.cameraPositionWorld[1], self.cameraPositionWorld[2])
 
-        glUniform1f(self.pcProgram.uniformPointSize, self.pointSize)
-        glUniform1f(self.pcProgram.uniformOpacity, self.opacity)
-        glUniform1i(self.pcProgram.uniformColorMode, self.colorMode)
-        glUniform1i(self.pcProgram.uniformHasColor, 0 if self.pointCloud.colors is None else 1)
-        glUniform1i(self.pcProgram.uniformHasNormal, 0 if self.pointCloud.normals is None else 1)
+        glUniform1f(PointCloudRenderer.pcProgram.uniformPointSize, self.pointSize)
+        glUniform1f(PointCloudRenderer.pcProgram.uniformOpacity, self.opacity)
+        glUniform1i(PointCloudRenderer.pcProgram.uniformColorMode, self.colorMode)
+        glUniform1i(PointCloudRenderer.pcProgram.uniformHasColor, 0 if self.pointCloud.colors is None else 1)
+        glUniform1i(PointCloudRenderer.pcProgram.uniformHasNormal, 0 if self.pointCloud.normals is None else 1)
+        glUniform1f(PointCloudRenderer.pcProgram.uniformMaxZ, self.maxZ)
+        glUniform1f(PointCloudRenderer.pcProgram.uniformColorMapScale, self.colorMapScale)
 
         if self.updated:
             self.updated = False
