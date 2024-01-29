@@ -1,3 +1,5 @@
+#pragma once
+
 #include <string>
 #include <chrono>
 #include <sys/stat.h>
@@ -8,7 +10,7 @@
 #include <direct.h>
 #endif
 
-int makeDir(const std::string &dir) {
+inline int makeDir(const std::string &dir) {
 #ifdef _MSC_VER
     return _mkdir(dir.c_str());
 #else
@@ -17,7 +19,7 @@ int makeDir(const std::string &dir) {
 #endif
 }
 
-bool folderExists(const std::string &folder) {
+inline bool folderExists(const std::string &folder) {
 #ifdef _MSC_VER
     struct _stat info;
     if (_stat(folder.c_str(), &info) != 0) return false;
@@ -29,7 +31,7 @@ bool folderExists(const std::string &folder) {
 #endif
 }
 
-bool createFolders(const std::string &folder) {
+inline bool createFolders(const std::string &folder) {
     int ret = makeDir(folder);
     if (ret == 0) return true;
 
@@ -54,7 +56,7 @@ bool createFolders(const std::string &folder) {
     }
 }
 
-void setAutoSubfolder(std::string &recordingFolder) {
+inline void setAutoSubfolder(std::string &recordingFolder) {
     auto now = std::chrono::system_clock::now();
     auto timePoint = std::chrono::system_clock::to_time_t(now);
     std::tm localTime = *std::localtime(&timePoint);

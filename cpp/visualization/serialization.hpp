@@ -3,6 +3,7 @@
 #include <array>
 #include <fstream>
 #include <mutex>
+#include <set>
 
 #include <spectacularAI/output.hpp>
 #include <spectacularAI/mapping.hpp>
@@ -26,17 +27,18 @@ struct MessageHeader {
 
 class Serializer {
 public:
-    Serializer(const std::string &filename);
+    Serializer(const std::string &folder);
     ~Serializer();
 
     void serializeVioOutput(spectacularAI::VioOutputPtr vioOutput);
     void serializeMappingOutput(spectacularAI::mapping::MapperOutputPtr mapperOutput);
 
 private:
-    const std::string filename;
+    const std::string folder;
     std::mutex outputMutex;
     std::ofstream outputStream;
     uint32_t messageIdCounter = 0;
+    std::set<int> serializedKeyFrameIds;
 };
 
 } // namespace visualization

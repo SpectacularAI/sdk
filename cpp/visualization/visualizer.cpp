@@ -11,12 +11,13 @@ namespace {
 const char* pythonScript =
 R"(
 import threading
-from spectacularAI.cli.visualization.serialization import input_stream_reader, MockVioOutput, MockMapperOutput
+from spectacularAI.cli.visualization.serialization import VioDeserializer, MockVioOutput, MockMapperOutput
 from spectacularAI.cli.visualization.visualizer import Visualizer, VisualizerArgs
 
 def parseArgs():
     import argparse
     p = argparse.ArgumentParser(__doc__)
+    p.add_argument("directory", help="Serialization directory")
     p.add_argument("--resolution", help="Window resolution", default="1280x720")
     p.add_argument("--fps", type=int, default=30, help="Window target fps")
     p.add_argument("--fullScreen", help="Start in full screen mode", action="store_true")
@@ -45,13 +46,9 @@ if __name__ == '__main__':
         visualizer.onVioOutput(vioOutput.getCameraPose(0), status=vioOutput.status)
 
     def inputStreamLoop():
-        with open("spectacularAI_temp_serialization", 'rb') as file:
-            vioSource = input_stream_reader(file)
-            for output in vioSource:
-                if 'cameraPoses' in output:
-                    vioOutput = MockVioOutput(output)
-                    onVioOutput(vioOutput)
-                else: onMappingOutput(MockMapperOutput(output))
+        vio = VioDeserializer(args.directory, onVioOutput, onMappingOutput)
+        vio.start()
+
     thread = threading.Thread(target=inputStreamLoop, daemon=True)
     thread.start()
     visualizer.run()
@@ -80,6 +77,7 @@ bool runPythonVisualizer(const VisualizerArgs &args) {
     tempFile.close();
 
     std::stringstream ss;
+    ss << " spectacularAI_temp_serialization";
     ss << " --resolution " << r.first << "x" << r.second;
     ss << " --fps " << args.targetFps;
     if (args.fullScreen)

@@ -2,17 +2,18 @@
 Deserializes SLAM data serialized by C++ serialization
 """
 
-HEADER_SIZE = 16
-
 import struct
 import json
 import numpy as np
 import spectacularAI
 import time
+import os
 
-def read_bytes(in_stream, n):
-    dt = 0
-    result = b""  # Initialize an empty bytes object
+MAGIC_BYTES = 2727221974 # Random number indicating start of a MessageHeader
+HEADER_SIZE = 16 # Message header bytes
+
+def readBytes(in_stream, n):
+    result = b"" # Initialize an empty bytes object
     while n > 0:
         chunk = in_stream.read(n)
         if len(chunk) > 0:
@@ -20,41 +21,71 @@ def read_bytes(in_stream, n):
             n -= len(chunk)
         else:
             time.sleep(0.01)
-            dt += 0.01
     return result
 
-def input_stream_reader(in_stream):
-    MAGIC_BYTES = 2727221974
-    shouldQuit = False
+class VioDeserializer:
+    def __init__(self, directory, onVioOutput, onMappingOutput):
+        self.onVioOutput = onVioOutput
+        self.onMappingOutput = onMappingOutput
+        self.pointClouds = {}
+        if os.path.exists(directory) and os.path.isdir(directory):
+            self.directory = directory
+        else:
+            raise Exception(f"VioDeserializer: {directory} is not a directory!")
 
-    while not shouldQuit:
-        messageHeader = read_bytes(in_stream, HEADER_SIZE)
-        if messageHeader is False: break
+    def __deserializePointCloud(self, keyFrameId, pointCloudJson):
+        if keyFrameId in self.pointClouds:
+            return self.pointClouds[keyFrameId]
 
-        magicBytes, messageId, jsonSize, binarySize = struct.unpack('@4I', messageHeader)
-        if magicBytes != MAGIC_BYTES:
-            raise Exception(f"Wrong magic bytes! Expected {MAGIC_BYTES} and received {magicBytes}")
-        json_output = json.loads(read_bytes(in_stream, jsonSize).decode('ascii'))
+        jsonPath = os.path.join(self.directory, f"pointCloud{keyFrameId}")
+        with open(jsonPath, 'rb') as file:
+            points = pointCloudJson["size"]
+            pointCloudJson["positionData"] = np.frombuffer(readBytes(file, points * 4 * 3), dtype=np.float32)
+            pointCloudJson["positionData"].shape = (points, 3)
+            if pointCloudJson["hasNormals"]:
+                pointCloudJson["normalData"] = np.frombuffer(readBytes(file, points * 4 * 3), dtype=np.float32)
+                pointCloudJson["normalData"].shape = (points, 3)
+            if pointCloudJson["hasColors"]:
+                pointCloudJson["rgb24Data"] = np.frombuffer(readBytes(file, points * 3), dtype=np.ubyte)
+                pointCloudJson["rgb24Data"].shape = (points, 3)
+        self.pointClouds[keyFrameId] = pointCloudJson
 
-        if 'cameraPoses' in json_output: # Vio output
-            assert(binarySize == 0)
-        else: # Mapper output, deserialize binary data
-            shouldQuit = json_output["finalMap"]
-            for keyFrameId in json_output["updatedKeyFrames"]:
-                keyFrame = json_output["map"]["keyFrames"].get(str(keyFrameId))
-                if not keyFrame: continue # Deleted key frame
-                if "pointCloud" in keyFrame:
-                    pointCloud = keyFrame["pointCloud"]
-                    points = pointCloud["size"]
-                    pointCloud["positionData"] = np.frombuffer(read_bytes(in_stream, points * 4 * 3), dtype=np.float32)
-                    pointCloud["positionData"].shape = (points, 3)
-                    if pointCloud["hasNormals"]:
-                        pointCloud["normalData"] = np.frombuffer(read_bytes(in_stream, points * 4 * 3), dtype=np.float32)
-                        pointCloud["normalData"].shape = (points, 3)
-                    if pointCloud["hasColors"]:
-                        pointCloud["rgb24Data"] = np.frombuffer(read_bytes(in_stream, points * 3), dtype=np.ubyte)
-                        pointCloud["rgb24Data"].shape = (points, 3)
-        yield json_output
+        # Pointcloud file is no longer needed -> delete
+        os.remove(jsonPath)
+
+        return pointCloudJson
+
+    def start(self):
+        shouldQuit = False
+        jsonPath = os.path.join(self.directory, "json")
+        with open(jsonPath, 'rb') as file:
+            while not shouldQuit:
+                messageHeader = readBytes(file, HEADER_SIZE)
+                if messageHeader is False: break
+
+                magicBytes, messageId, jsonSize, binarySize = struct.unpack('@4I', messageHeader)
+                if magicBytes != MAGIC_BYTES:
+                    raise Exception(f"Wrong magic bytes! Expected {MAGIC_BYTES} and received {magicBytes}")
+                jsonOutput = json.loads(readBytes(file, jsonSize).decode('ascii'))
+
+                if 'cameraPoses' in jsonOutput: # Vio output
+                    assert(binarySize == 0)
+                    if self.onVioOutput:
+                        vioOutput = MockVioOutput(jsonOutput)
+                        self.onVioOutput(vioOutput)
+                else: # Mapper output
+                    shouldQuit = jsonOutput["finalMap"]
+                    if self.onMappingOutput:
+                        for keyFrameId in jsonOutput["updatedKeyFrames"]:
+                            keyFrame = jsonOutput["map"]["keyFrames"].get(str(keyFrameId))
+                            if not keyFrame: # Deleted key frame
+                                self.pointClouds.pop(keyFrameId, None)
+                                continue
+                            if "pointCloud" in keyFrame:
+                                pointCloud = keyFrame["pointCloud"]
+                                keyFrame["pointCloud"] = self.__deserializePointCloud(keyFrameId, pointCloud)
+                        mappingOutput = MockMapperOutput(jsonOutput)
+                        self.onMappingOutput(mappingOutput)
 
 def invert_se3(a):
     b = np.eye(4)
@@ -158,20 +189,3 @@ class MockMapperOutput:
         self.updatedKeyFrames = data["updatedKeyFrames"]
         self.finalMap = data["finalMap"]
         self.map = MockMap(data["map"])
-
-if __name__ == '__main__':
-    import argparse
-    parser = argparse.ArgumentParser(__doc__)
-    parser.add_argument('--file', type=argparse.FileType('rb'),
-                        help='Read data from file or pipe',
-                        default=None)
-    args = parser.parse_args()
-    vio_source = input_stream_reader(args.file)
-    for vio_out in vio_source:
-        # Do something with output
-        if 'cameraPoses' in vio_out:
-            vioOutput = MockVioOutput(vio_out)
-            print(vioOutput.getCameraPose(0).getCameraToWorldMatrix())
-        else:
-            mapperOutput = MockMapperOutput(vio_out)
-            print(f"Updated keyframes: {mapperOutput.updatedKeyFrames}")

@@ -9,7 +9,6 @@ from OpenGL.GL import * # all prefixed with gl so OK to import *
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import pygame
 
-from .visualizer_renderers.mesh import MeshRenderer
 from .visualizer_renderers.util import lookAt, getOrthographicProjectionMatrixOpenGL
 from .visualizer_renderers.renderers import *
 
