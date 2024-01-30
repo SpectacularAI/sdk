@@ -1,6 +1,6 @@
 """
 Post-process data in Spectacular AI format and convert it to input
-for NeRF or Gaussian Splatting methods.
+for NeRF or Gaussian Splatting methods, or export optimized pointclouds in ply and pcd formats.
 """
 
 # --- The following mechanism allows using this both as a stand-alone
@@ -9,7 +9,7 @@ for NeRF or Gaussian Splatting methods.
 def define_args(parser):
     parser.add_argument("input", help="Path to folder with session to process")
     parser.add_argument("output", help="Output folder")
-    parser.add_argument('--format', choices=['taichi', 'nerfstudio'], default='nerfstudio', help='Output format')
+    parser.add_argument('--format', choices=['taichi', 'nerfstudio, ply, pcd'], default='nerfstudio', help='Output format. Formats ply, pcd are used to export optimized pointcloud.')
     parser.add_argument("--cell_size", help="Dense point cloud decimation cell size (meters)", type=float, default=0.1)
     parser.add_argument("--distance_quantile", help="Max point distance filter quantile (0 = disabled)", type=float, default=0.99)
     parser.add_argument("--key_frame_distance", help="Minimum distance between keyframes (meters)", type=float, default=0.05)
@@ -262,6 +262,10 @@ def process(args):
         if visualizer is not None:
             visualizer.onMappingOutput(output)
 
+        if args.format in ['ply', 'pcd']:
+            if output.finalMap: finalMapWritten = True
+            return
+
         if not output.finalMap:
             # New frames, let's save the images to disk
             for frameId in output.updatedKeyFrames:
@@ -499,6 +503,9 @@ def process(args):
         "icpVoxelSize": min(args.key_frame_distance, 0.1)
     }
 
+    if args.format in ['ply', 'pcd']:
+        config["mapSavePath"] = f"{args.output}/pointCloud.{args.format}"
+
     device_preset, cameras = detect_device_preset(args.input)
 
     useMono = args.mono or (cameras != None and cameras == 1)
@@ -591,6 +598,10 @@ def process(args):
         print(f"val-dataset-json-path: 'data/{name}/val.json'", flush=True)
     elif args.format == 'nerfstudio':
         print(f'output written to {args.output}', flush=True)
+    elif args.format == 'ply':
+        print(f'output written to {args.output}/pointCloud.ply', flush=True)
+    elif args.format == 'pcd':
+        print(f'output written to {args.output}/pointCloud.pcd', flush=True)
 
 if __name__ == '__main__':
     def parse_args():
