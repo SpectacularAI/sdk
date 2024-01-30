@@ -249,6 +249,7 @@ class PoseTrailRenderer:
         self.lineWidth = lineWidth
         self.poseTrail = []
         self.vbo = None
+        self.updated = False
 
     # Must be called from the OpenGL thread
     def reset(self):
@@ -266,10 +267,10 @@ class PoseTrailRenderer:
         self.poseTrail.append(position)
         if self.maxLength is not None and len(self.poseTrail) > self.maxLength:
             self.poseTrail.pop(0)
-        self.__updateVbo()
+        self.updated = True
 
     def __updateVbo(self):
-        if not bool(glGenBuffers): return
+        self.updated = False
         if self.vbo is None: self.vbo = glGenBuffers(1)
 
         glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
@@ -277,7 +278,7 @@ class PoseTrailRenderer:
         glBindBuffer(GL_ARRAY_BUFFER, 0)
 
     def render(self):
-        if self.vbo is None: return
+        if self.updated: self.__updateVbo()
 
         glEnableClientState(GL_VERTEX_ARRAY)
         glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
