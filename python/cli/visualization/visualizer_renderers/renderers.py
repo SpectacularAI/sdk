@@ -122,7 +122,11 @@ class MapRenderer:
         self.maxRenderKeyFrames = keyFrameCount
         self.colorMode = colorMode
 
-        self.reset()
+        self.keyFrameCameraToWorldMatrices = {}
+        self.pointCloudRenderers = {}
+        self.sparsePointCloudRenderer = None
+        self.keyFrameRenderer = KeyFrameRenderer()
+        # self.meshRenderer = MeshRenderer() # TODO: fix
 
     def onMappingOutput(self, mapperOutput):
         for kfId in mapperOutput.updatedKeyFrames:
@@ -174,13 +178,16 @@ class MapRenderer:
             sparsePointCloud.normals = None
 
             if len(sparsePointCloud.vertices) > 0:
-                SPARSE_POINT_SIZE = 2
-                self.sparsePointCloudRenderer = PointCloudRenderer(
-                    pointSize=SPARSE_POINT_SIZE,
-                    opacity=0.3,
-                    pointCloud=sparsePointCloud,
-                    maxZ=self.maxZ,
-                    colorMapScale=20.0/self.visualizationScale)
+                if self.sparsePointCloudRenderer is None:
+                    SPARSE_POINT_SIZE = 2
+                    self.sparsePointCloudRenderer = PointCloudRenderer(
+                        pointSize=SPARSE_POINT_SIZE,
+                        opacity=0.3,
+                        pointCloud=sparsePointCloud,
+                        maxZ=self.maxZ,
+                        colorMapScale=20.0/self.visualizationScale)
+                else:
+                    self.sparsePointCloudRenderer.setPointCloud(sparsePointCloud)
 
     def setRenderPointCloud(self, render):
         self.renderPointCloud = render
@@ -205,10 +212,11 @@ class MapRenderer:
 
     def reset(self):
         self.keyFrameCameraToWorldMatrices = {}
+        for kfId in self.pointCloudRenderers: self.pointCloudRenderers[kfId].cleanup()
         self.pointCloudRenderers = {}
-        self.sparsePointCloudRenderer = None
-        self.keyFrameRenderer = KeyFrameRenderer()
-        # self.meshRenderer = MeshRenderer() # TODO: fix
+        if self.sparsePointCloudRenderer is not None:
+            self.sparsePointCloudRenderer.cleanup()
+            self.sparsePointCloudRenderer = None
 
     def render(self, cameraPositionWorld, viewMatrix, projectionMatrix):
         n = len(self.pointCloudRenderers) if self.maxRenderKeyFrames is None else self.maxRenderKeyFrames
@@ -235,38 +243,58 @@ class MapRenderer:
         # if self.renderMesh: self.meshRenderer.render() # TODO: implement
 
 class PoseTrailRenderer:
-    def __init__(self, maxLength=None, color=np.array(DEFAULT_POSE_TRAIL_RGBA), lineWidth=2.0):
+    def __init__(self, maxLength=10000, color=np.array(DEFAULT_POSE_TRAIL_RGBA), lineWidth=2.0):
         self.color = color
         self.maxLength = maxLength
         self.lineWidth = lineWidth
-        self.reset()
+        self.poseTrail = []
+        self.vbo = None
 
+    # Must be called from the OpenGL thread
     def reset(self):
         self.poseTrail = []
+
+        # Delete old VBOs
+        if self.vbo is not None:
+            glDeleteBuffers(1, [self.vbo])
+            self.vbo = None
 
     def append(self, position):
         position = np.array([position.x, position.y, position.z])
         if len(self.poseTrail) > 0 and (position == self.poseTrail[-1]).all():
             return
         self.poseTrail.append(position)
-
         if self.maxLength is not None and len(self.poseTrail) > self.maxLength:
             self.poseTrail.pop(0)
+        self.__updateVbo()
+
+    def __updateVbo(self):
+        if not bool(glGenBuffers): return
+        if self.vbo is None: self.vbo = glGenBuffers(1)
+
+        glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
+        glBufferData(GL_ARRAY_BUFFER, np.array(self.poseTrail, dtype=np.float32), GL_DYNAMIC_DRAW)
+        glBindBuffer(GL_ARRAY_BUFFER, 0)
 
     def render(self):
-        glLineWidth(self.lineWidth)
+        if self.vbo is None: return
+
+        glEnableClientState(GL_VERTEX_ARRAY)
+        glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
+        glVertexPointer(3, GL_FLOAT, 0, None)
+
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         glEnable(GL_LINE_SMOOTH)
         glHint(GL_LINE_SMOOTH_HINT, GL_NICEST)
         glEnable(GL_DEPTH_TEST)
-        glBegin(GL_LINE_STRIP)
+        glLineWidth(self.lineWidth)
         glColor4fv(self.color)
 
-        for position in self.poseTrail:
-            glVertex3fv(position)
+        glDrawArrays(GL_LINE_STRIP, 0, len(self.poseTrail))
 
-        glEnd()
+        glDisableClientState(GL_VERTEX_ARRAY)
+        glBindBuffer(GL_ARRAY_BUFFER, 0)
         glDisable(GL_BLEND)
         glDisable(GL_LINE_SMOOTH)
         glDisable(GL_DEPTH_TEST)
