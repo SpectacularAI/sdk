@@ -488,13 +488,6 @@ def process(args):
                         if device: break
         return (device, cameras)
 
-    # Clear output dir
-    shutil.rmtree(f"{args.output}/images", ignore_errors=True)
-    os.makedirs(f"{args.output}/images", exist_ok=True)
-    tmp_dir = f"{args.output}/tmp"
-    tmp_input = f"{tmp_dir}/input"
-    copy_input_to_tmp_safe(args.input, tmp_input)
-
     config = {
         "maxMapSize": 0,
         "useSlam": True,
@@ -503,8 +496,15 @@ def process(args):
         "icpVoxelSize": min(args.key_frame_distance, 0.1)
     }
 
+    # Clear output dir
+    shutil.rmtree(f"{args.output}/images", ignore_errors=True)
     if args.format in ['ply', 'pcd']:
         config["mapSavePath"] = f"{args.output}/pointCloud.{args.format}"
+    else:
+        os.makedirs(f"{args.output}/images", exist_ok=True)
+    tmp_dir = f"{args.output}/tmp"
+    tmp_input = f"{tmp_dir}/input"
+    copy_input_to_tmp_safe(args.input, tmp_input)
 
     device_preset, cameras = detect_device_preset(args.input)
 
