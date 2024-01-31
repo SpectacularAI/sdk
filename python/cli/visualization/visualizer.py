@@ -9,6 +9,7 @@ from OpenGL.GL import * # all prefixed with gl so OK to import *
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import pygame
 
+from .visualizer_renderers.mesh import MeshRenderer
 from .visualizer_renderers.util import lookAt, getOrthographicProjectionMatrixOpenGL
 from .visualizer_renderers.renderers import *
 
@@ -468,9 +469,8 @@ class Visualizer:
         if self.outputQueueMutex:
             self.outputQueue.append(output)
 
-        # In live mode, future vio outputs are discarded
-        # In replay mode, Replay API is blocked -> no more vio outputs
-        while self.shouldPause:
+        # Blocks VIO until previous outputs have been processed
+        while len(self.outputQueue) > 5:
             time.sleep(0.01)
             if self.shouldQuit: break
 
@@ -513,11 +513,8 @@ class Visualizer:
                         if wasTracking:
                             self.__resetAfterLost()
                             wasTracking = False
-
-                    # Render on all outputs if using target fps 0 (i.e. render on vio output mode)
-                    # unless they were dropped because visualization is running too slow.
+                    # Drop vio outputs if target fps is too low
                     if self.args.targetFps == 0: break
-
                 elif output["type"] == "slam":
                     mapperOutput = output["mapperOutput"]
                     if wasTracking: # Don't render if not tracking. Messes up this visualization easily
