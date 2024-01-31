@@ -4,13 +4,14 @@
 #include <thread>
 #include <vector>
 #include <sstream>
-#include <iomanip>
-#include <chrono>
-#include <filesystem>
 #include <libobsensor/ObSensor.hpp>
 #include <spectacularAI/orbbec/plugin.hpp>
 
+#include "visualizer.hpp"
+#include "helpers.hpp"
+
 void showUsage() {
+    std::cout << "Record data for later playback from Orbbec devices" << std::endl << std::endl;
     std::cout << "Supported arguments:" << std::endl
         << "  -h, --help Help" << std::endl
         << "  --output <recording_folder>, otherwise recording is saved to current working directory" << std::endl
@@ -20,11 +21,18 @@ void showUsage() {
         << "  --depth_res <width,height>" << std::endl
         << "  --frame_rate <fps>" << std::endl
         << "  --align, use orbbec sdk to align depth images to color images, note color camera might have smaller fov!" << std::endl
-        << "  --print" << std::endl
         << "  --exposure <value>" << std::endl
         << "  --gain <value>" << std::endl
         << "  --whitebalance <kelvins> " << std::endl
         << "  --brightness <value>" << std::endl
+        << "  --no_preview, do not show a live preview" << std::endl
+        << "  --preview_resolution <width,height>, window resolution (default=1280,720)" << std::endl
+        << "  --preview_fps <fps>, window fps (default=30)" << std::endl
+        << "  --fullscreen, start in fullscreen mode" << std::endl
+        << "  --record_window, window recording filename" << std::endl
+        << "  --voxel <meters>, voxel size for downsampling point clouds (visualization only)" << std::endl
+        << "  --color, filter points without color (visualization only)" << std::endl
+        << "  --no_record, disable recording" << std::endl
         << std::endl;
 }
 
@@ -85,18 +93,6 @@ std::pair<int, int> tryParseResolution(const std::string &s) {
     }
 }
 
-void setAutoSubfolder(std::string &recordingFolder) {
-    auto now = std::chrono::system_clock::now();
-    auto timePoint = std::chrono::system_clock::to_time_t(now);
-    std::tm localTime = *std::localtime(&timePoint);
-    std::ostringstream oss;
-    oss << std::put_time(&localTime, "%Y-%m-%d_%H-%M-%S");
-    std::filesystem::path basePath = recordingFolder;
-    std::filesystem::path filename = oss.str();
-    std::filesystem::path combinedPath = basePath / filename;
-    recordingFolder = combinedPath.string();
-}
-
 int main(int argc, char *argv[]) {
     std::vector<std::string> arguments(argv, argv + argc);
     ob::Context::setLoggerSeverity(OB_LOG_SEVERITY_OFF);
@@ -113,12 +109,14 @@ int main(int argc, char *argv[]) {
     // Create Spectacular AI orbbec plugin configuration (depends on device type).
     spectacularAI::orbbecPlugin::Configuration config(*obPipeline);
 
+    spectacularAI::visualization::VisualizerArgs visArgs;
     int exposureValue = -1;
     int whiteBalanceKelvins = -1;
     int gain = -1;
     int brightness = -1;
-    bool print = false;
+    bool preview = true;
     bool autoSubfolders = false;
+    bool disableRecording = false;
 
     for (size_t i = 1; i < arguments.size(); ++i) {
         const std::string &argument = arguments.at(i);
@@ -136,8 +134,6 @@ int main(int argc, char *argv[]) {
             config.cameraFps = std::stoi(arguments.at(++i));
         else if (argument == "--align")
             config.alignedDepth = true;
-        else if (argument == "--print")
-            print = true;
         else if (argument == "--exposure")
             exposureValue = std::stoi(arguments.at(++i));
         else if (argument == "--whitebalance")
@@ -146,6 +142,22 @@ int main(int argc, char *argv[]) {
             gain = std::stoi(arguments.at(++i));
         else if (argument == "--brightness")
             brightness = std::stoi(arguments.at(++i));
+        else if (argument == "--no_preview")
+            preview = false;
+        else if (argument == "--preview_resolution")
+            visArgs.resolution = arguments.at(++i);
+        else if (argument == "--preview_fps")
+            visArgs.targetFps = std::stoi(arguments.at(++i));
+        else if (argument == "--fullscreen")
+            visArgs.fullScreen = true;
+        else if (argument == "--record_window")
+            visArgs.recordWindow = arguments.at(++i);
+        else if (argument == "--voxel")
+            visArgs.voxelSize = std::stof(arguments.at(++i));
+        else if (argument == "--color")
+            visArgs.colorOnly = true;
+        else if (argument == "--no_record")
+            disableRecording = true;
         else if (argument == "--help" || argument == "-h") {
             showUsage();
             return EXIT_SUCCESS;
@@ -165,8 +177,25 @@ int main(int argc, char *argv[]) {
     // Create timestamp-named subfolders for each recording
     if (autoSubfolders) setAutoSubfolder(config.recordingFolder);
 
+    // Disable recording?
+    if (disableRecording) config.recordingFolder = "";
+
+    std::function<void(spectacularAI::mapping::MapperOutputPtr)> mappingCallback = nullptr;
+    std::unique_ptr<spectacularAI::visualization::Visualizer> visualizer;
+    if (preview) {
+        visualizer = std::make_unique<spectacularAI::visualization::Visualizer>(visArgs);
+
+        config.internalParameters = {
+            {"computeStereoPointCloud", "true"} // enables point cloud colors
+        };
+
+        mappingCallback = [&](spectacularAI::mapping::MapperOutputPtr mappingOutput) {
+            visualizer->onMappingOutput(mappingOutput);
+        };
+    }
+
     // Create vio pipeline using the config & setup orbbec pipeline
-    spectacularAI::orbbecPlugin::Pipeline vioPipeline(*obPipeline, config);
+    spectacularAI::orbbecPlugin::Pipeline vioPipeline(*obPipeline, config, mappingCallback);
 
     auto device = obPipeline->getDevice();
     if (exposureValue >= 0) {
@@ -188,33 +217,36 @@ int main(int argc, char *argv[]) {
         if (!setCameraProperty(device, OB_PROP_COLOR_BRIGHTNESS_INT, brightness, "OB_PROP_COLOR_BRIGHTNESS_INT")) return EXIT_FAILURE;
     }
 
-    // Start orbbec device and vio.
+    // Start orbbec device and vio
     auto session = vioPipeline.startSession();
+    if (!disableRecording) std::cout << "Recording to '" << config.recordingFolder << "'" << std::endl;
 
     std::atomic<bool> shouldQuit(false);
-    std::thread inputThread([&]() {
-        std::cout << "Recording to '" << config.recordingFolder << "'" << std::endl;
-        std::cout << "Press Enter to quit." << std::endl << std::endl;
-        getchar();
-        shouldQuit = true;
-    });
-
-    while (!shouldQuit) {
-        if (session->hasOutput()) {
-            auto out = session->getOutput();
-            if (print) {
-                std::cout << "Vio API pose: " << out->pose.time << ", " << out->pose.position.x
-                          << ", " << out->pose.position.y << ", " << out->pose.position.z << ", "
-                          << out->pose.orientation.x << ", " << out->pose.orientation.y << ", "
-                          << out->pose.orientation.z << ", " << out->pose.orientation.w
-                          << std::endl;
+    if (visualizer) {
+        std::thread captureLoop([&]() {
+            while (!shouldQuit) {
+                if (session->hasOutput()) visualizer->onVioOutput(session->getOutput());
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
+        });
+        visualizer->run();
+        shouldQuit = true;
+        captureLoop.join();
+    } else {
+        std::thread inputThread([&]() {
+            std::cout << "Press Enter to quit." << std::endl << std::endl;
+            getchar();
+            shouldQuit = true;
+        });
 
-    std::cout << "Exiting." << std::endl;
-    if (shouldQuit) inputThread.join();
+        while (!shouldQuit) {
+            if (session->hasOutput()) session->getOutput(); // discard outputs
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+
+        std::cout << "Exiting." << std::endl;
+        inputThread.join();
+    }
 
     return EXIT_SUCCESS;
 }
