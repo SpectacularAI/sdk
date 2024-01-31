@@ -26,7 +26,7 @@ void showUsage() {
         << "  --whitebalance <kelvins> " << std::endl
         << "  --brightness <value>" << std::endl
         << "  --no_preview, do not show a live preview" << std::endl
-        << "  --resolution <width,height>, window resolution (default=1280,720)" << std::endl
+        << "  --preview_resolution <width,height>, window resolution (default=1280,720)" << std::endl
         << "  --preview_fps <fps>, window fps (default=30)" << std::endl
         << "  --fullscreen, start in fullscreen mode" << std::endl
         << "  --record_window, window recording filename" << std::endl
@@ -144,7 +144,7 @@ int main(int argc, char *argv[]) {
             brightness = std::stoi(arguments.at(++i));
         else if (argument == "--no_preview")
             preview = false;
-        else if (argument == "--resolution")
+        else if (argument == "--preview_resolution")
             visArgs.resolution = arguments.at(++i);
         else if (argument == "--preview_fps")
             visArgs.targetFps = std::stoi(arguments.at(++i));
