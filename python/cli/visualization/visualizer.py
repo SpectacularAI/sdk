@@ -315,6 +315,8 @@ class Visualizer:
 
     def __close(self):
         assert(self.shouldQuit)
+        self.map.reset()
+        self.poseTrail.reset()
         if self.displayInitialized:
             self.displayInitialized = False
             pygame.quit()
