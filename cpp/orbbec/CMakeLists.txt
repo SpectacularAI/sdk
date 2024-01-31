@@ -21,7 +21,7 @@ find_package(spectacularAI_orbbecPlugin REQUIRED)
 
 set(JSON_Install OFF CACHE INTERNAL "")
 set(JSON_BuildTests OFF CACHE INTERNAL "")
-add_subdirectory("../visualization/json" json)
+add_subdirectory("../common/3rdparty/json" json)
 
 set(TOOL_LIBS
   Threads::Threads
@@ -34,9 +34,9 @@ if(NOT MSVC)
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath='$ORIGIN/../lib:$ORIGIN/../lib/3rdparty'")
 endif()
 
-add_executable(sai-record-orbbec record.cpp ../visualization/serialization.cpp ../visualization/visualizer.cpp)
+add_executable(sai-record-orbbec record.cpp ../common/visualization/serialization.cpp ../common/visualization/visualizer.cpp)
 target_link_libraries(sai-record-orbbec ${TOOL_LIBS})
-target_include_directories(sai-record-orbbec PRIVATE "../visualization")
+target_include_directories(sai-record-orbbec PRIVATE "../common/visualization")
 
 if(MSVC)
   add_custom_command(TARGET sai-record-orbbec POST_BUILD
