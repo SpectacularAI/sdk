@@ -8,8 +8,8 @@ for NeRF or Gaussian Splatting methods, or export optimized pointclouds in ply a
 
 def define_args(parser):
     parser.add_argument("input", help="Path to folder with session to process")
-    parser.add_argument("output", help="Output folder")
-    parser.add_argument('--format', choices=['taichi', 'nerfstudio', 'ply', 'pcd'], default='nerfstudio', help='Output format. Formats ply, pcd are used to export optimized pointcloud.')
+    parser.add_argument("output", help="Output folder, or filename with .ply or .pcd extension if exporting pointcloud")
+    parser.add_argument('--format', choices=['taichi', 'nerfstudio'], default='nerfstudio', help='Output format.')
     parser.add_argument("--cell_size", help="Dense point cloud decimation cell size (meters)", type=float, default=0.1)
     parser.add_argument("--distance_quantile", help="Max point distance filter quantile (0 = disabled)", type=float, default=0.99)
     parser.add_argument("--key_frame_distance", help="Minimum distance between keyframes (meters)", type=float, default=0.05)
@@ -33,9 +33,16 @@ def process(args):
     import json
     import os
     import shutil
+    import tempfile
     import numpy as np
     import pandas as pd
     from collections import OrderedDict
+
+    # Overwrite format if output is set to pointcloud
+    if args.output.endswith(".ply"):
+        args.format = "ply"
+    elif args.output.endswith(".pcd"):
+        args.format = "pcd"
 
     useMono = None
 
@@ -292,7 +299,7 @@ def process(args):
                 img = undistortedFrame.image.toArray()
 
                 bgrImage = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-                fileName = f"{args.output}/tmp/frame_{frameId:05}.{args.image_format}"
+                fileName = f"{tmp_dir}/frame_{frameId:05}.{args.image_format}"
                 cv2.imwrite(fileName, bgrImage)
 
                 # Find colors for sparse features
@@ -311,7 +318,7 @@ def process(args):
                 if frameSet.depthFrame is not None and frameSet.depthFrame.image is not None and not useMono:
                     alignedDepth = frameSet.getAlignedDepthFrame(undistortedFrame)
                     depthData = alignedDepth.image.toArray()
-                    depthFrameName = f"{args.output}/tmp/depth_{frameId:05}.png"
+                    depthFrameName = f"{tmp_dir}/depth_{frameId:05}.png"
                     cv2.imwrite(depthFrameName, depthData)
 
                     DEPTH_PREVIEW = False
@@ -334,7 +341,7 @@ def process(args):
             sparsePointCloud = OrderedDict()
             imageSharpness = []
             for frameId in output.map.keyFrames:
-                imageSharpness.append((frameId, blurScore(f"{args.output}/tmp/frame_{frameId:05}.{args.image_format}")))
+                imageSharpness.append((frameId, blurScore(f"{tmp_dir}/frame_{frameId:05}.{args.image_format}")))
 
             # Look two images forward and two backwards, if current frame is blurriest, don't use it
             for i in range(len(imageSharpness)):
@@ -381,11 +388,11 @@ def process(args):
                     "camera_id": index # camera id, not used
                 }
 
-                oldImgName = f"{args.output}/tmp/frame_{frameId:05}.{args.image_format}"
+                oldImgName = f"{tmp_dir}/frame_{frameId:05}.{args.image_format}"
                 newImgName = f"{args.output}/images/frame_{index:05}.{args.image_format}"
                 os.rename(oldImgName, newImgName)
 
-                oldDepth = f"{args.output}/tmp/depth_{frameId:05}.png"
+                oldDepth = f"{tmp_dir}/depth_{frameId:05}.png"
                 newDepth = f"{args.output}/images/depth_{index:05}.png"
                 if os.path.exists(oldDepth):
                     os.rename(oldDepth, newDepth)
@@ -496,14 +503,15 @@ def process(args):
         "icpVoxelSize": min(args.key_frame_distance, 0.1)
     }
 
-    # Clear output dir
-    shutil.rmtree(f"{args.output}/images", ignore_errors=True)
     if args.format in ['ply', 'pcd']:
-        config["mapSavePath"] = f"{args.output}/pointCloud.{args.format}"
+        config["mapSavePath"] = args.output
     else:
+        # Clear output dir
+        shutil.rmtree(f"{args.output}/images", ignore_errors=True)
         os.makedirs(f"{args.output}/images", exist_ok=True)
-    tmp_dir = f"{args.output}/tmp"
-    tmp_input = f"{tmp_dir}/input"
+
+    tmp_dir = tempfile.mkdtemp()
+    tmp_input = tempfile.mkdtemp()
     copy_input_to_tmp_safe(args.input, tmp_input)
 
     device_preset, cameras = detect_device_preset(args.input)
@@ -582,6 +590,11 @@ def process(args):
     except:
         print(f"Failed to clean temporary directory, you can delete these files manually, they are no longer required: {tmp_dir}", flush=True)
 
+    try:
+        shutil.rmtree(tmp_input)
+    except:
+        print(f"Failed to clean temporary directory, you can delete these files manually, they are no longer required: {tmp_input}", flush=True)
+
     if not finalMapWritten:
         print('Mapping failed: no output generated')
         exit(1)
@@ -596,12 +609,8 @@ def process(args):
         print(f"output-model-dir: data/{name}/output", flush=True)
         print(f"train-dataset-json-path: 'data/{name}/train.json'", flush=True)
         print(f"val-dataset-json-path: 'data/{name}/val.json'", flush=True)
-    elif args.format == 'nerfstudio':
+    else:
         print(f'output written to {args.output}', flush=True)
-    elif args.format == 'ply':
-        print(f'output written to {args.output}/pointCloud.ply', flush=True)
-    elif args.format == 'pcd':
-        print(f'output written to {args.output}/pointCloud.pcd', flush=True)
 
 if __name__ == '__main__':
     def parse_args():
