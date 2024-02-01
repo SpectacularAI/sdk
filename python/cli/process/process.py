@@ -17,6 +17,7 @@ def define_args(parser):
     parser.add_argument('--device_preset', choices=['oak-d', 'k4a', 'realsense', 'android', 'android-tof', 'ios-tof', 'orbbec-astra2', 'orbbec-femto', 'custom'], help="Automatically detected in most cases")
     parser.add_argument('--fast', action='store_true', help='Fast but lower quality settings')
     parser.add_argument('--mono', action='store_true', help='Monocular mode: disable ToF and stereo data')
+    parser.add_argument('--crop', default=None, type=str, help='Post-processing crop rectangle x0,y0,w,h')
     parser.add_argument('--image_format', type=str, default='jpg', help="Color image format (use 'png' for top quality)")
     parser.add_argument("--preview", help="Show latest primary image as a preview", action="store_true")
     parser.add_argument("--preview3d", help="Show 3D visualization", action="store_true")
@@ -26,6 +27,15 @@ def define_subparser(subparsers):
     sub = subparsers.add_parser('process', help=__doc__.strip())
     sub.set_defaults(func=process)
     return define_args(sub)
+
+def parse_crop_rect(crop):
+    x0, y0, w, h = [int(x) for x in crop.split(',')]
+    return { 'x0': x0, 'y0': y0, 'w': w, 'h': h, 'x1': x0+w, 'y1': y0+h }
+
+def crop(img, crop_rect):
+    if crop_rect is None: return img
+    r = crop_rect
+    return img[r['y0']:r['y1'], r['x0']:r['x1'], ...]
 
 def process(args):
     import spectacularAI
@@ -38,6 +48,7 @@ def process(args):
     from collections import OrderedDict
 
     useMono = None
+    crop_rect = parse_crop_rect(args.crop)
 
     def interpolate_missing_properties(df_source, df_query, k_nearest=3):
         from scipy.spatial import KDTree
@@ -279,17 +290,18 @@ def process(args):
                         np.copy(keyFrame.pointCloud.getPositionData()),
                         np.copy(keyFrame.pointCloud.getRGB24Data()))
 
-                if frameWidth < 0:
-                    frameWidth = targetFrame.image.getWidth()
-                    frameHeight = targetFrame.image.getHeight()
-
                 undistortedFrame = frameSet.getUndistortedFrame(targetFrame)
                 if intrinsics is None: intrinsics = undistortedFrame.cameraPose.camera.getIntrinsicMatrix()
                 img = undistortedFrame.image.toArray()
 
                 bgrImage = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
                 fileName = f"{args.output}/tmp/frame_{frameId:05}.{args.image_format}"
-                cv2.imwrite(fileName, bgrImage)
+                croppedBgrImage = crop(bgrImage, crop_rect)
+                cv2.imwrite(fileName, croppedBgrImage)
+
+                if frameWidth < 0:
+                    frameWidth = croppedBgrImage.shape[1]
+                    frameHeight = croppedBgrImage.shape[0]
 
                 # Find colors for sparse features
                 SHOW_FEATURE_MARKERS = True
@@ -302,13 +314,16 @@ def process(args):
                         if args.preview and SHOW_FEATURE_MARKERS:
                             MARKER_COLOR = (0, 255, 0)
                             cv2.circle(bgrImage, (px, py), 5, MARKER_COLOR, thickness=1)
+                        if crop_rect is not None:
+                            cv2.rectangle(bgrImage, (crop_rect['x0'], crop_rect['y0']), (crop_rect['x1'], crop_rect['y1']), (0, 0, 0))
+
 
                 # Legacy: support SDK versions which also produced images where frameSet.depthFrame.image was None
                 if frameSet.depthFrame is not None and frameSet.depthFrame.image is not None and not useMono:
                     alignedDepth = frameSet.getAlignedDepthFrame(undistortedFrame)
                     depthData = alignedDepth.image.toArray()
                     depthFrameName = f"{args.output}/tmp/depth_{frameId:05}.png"
-                    cv2.imwrite(depthFrameName, depthData)
+                    cv2.imwrite(depthFrameName, crop(depthData, crop_rect))
 
                     DEPTH_PREVIEW = False
                     if args.preview and DEPTH_PREVIEW:
@@ -376,6 +391,10 @@ def process(args):
                     "camera_width": frameWidth, # image width, in pixel
                     "camera_id": index # camera id, not used
                 }
+
+                if crop_rect is not None:
+                    frame['camera_intrinsics'][0][2] -= crop_rect['x0']
+                    frame['camera_intrinsics'][1][2] -= crop_rect['y0']
 
                 oldImgName = f"{args.output}/tmp/frame_{frameId:05}.{args.image_format}"
                 newImgName = f"{args.output}/images/frame_{index:05}.{args.image_format}"
