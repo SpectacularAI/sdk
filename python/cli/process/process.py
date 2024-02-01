@@ -14,7 +14,7 @@ def define_args(parser):
     parser.add_argument("--distance_quantile", help="Max point distance filter quantile (0 = disabled)", type=float, default=0.99)
     parser.add_argument("--key_frame_distance", help="Minimum distance between keyframes (meters)", type=float, default=0.05)
     parser.add_argument('--no_icp', action='store_true')
-    parser.add_argument('--device_preset', choices=['none', 'oak-d', 'k4a', 'realsense', 'android', 'android-tof', 'ios-tof', 'orbbec-astra2', 'orbbec-femto'], help="Automatically detected in most cases")
+    parser.add_argument('--device_preset', choices=['oak-d', 'k4a', 'realsense', 'android', 'android-tof', 'ios-tof', 'orbbec-astra2', 'orbbec-femto', 'custom'], help="Automatically detected in most cases")
     parser.add_argument('--fast', action='store_true', help='Fast but lower quality settings')
     parser.add_argument('--mono', action='store_true', help='Monocular mode: disable ToF and stereo data')
     parser.add_argument('--image_format', type=str, default='jpg', help="Color image format (use 'png' for top quality)")
@@ -455,8 +455,9 @@ def process(args):
             if not os.path.isdir(full_fn): shutil.copy(full_fn, tmp_input)
             elif f.startswith("frames"): shutil.copytree(full_fn, f"{tmp_input}/{f}", dirs_exist_ok=True)
 
-    def detect_device_preset(input_dir):
+    def detect_device_preset_and_params(input_dir):
         cameras = None
+        customParameters = []
         calibrationJson = f"{input_dir}/calibration.json"
         if os.path.exists(calibrationJson):
             with open(calibrationJson) as f:
@@ -481,8 +482,8 @@ def process(args):
                                 if d in line:
                                     device = d
                                     break
-                        if device: break
-        return (device, cameras)
+                        else: customParameters.append(line)
+        return (device, cameras, ''.join(customParameters))
 
     # Clear output dir
     shutil.rmtree(f"{args.output}/images", ignore_errors=True)
@@ -499,7 +500,7 @@ def process(args):
         "icpVoxelSize": min(args.key_frame_distance, 0.1)
     }
 
-    device_preset, cameras = detect_device_preset(args.input)
+    device_preset, cameras, custom_params = detect_device_preset_and_params(args.input)
 
     useMono = args.mono or (cameras != None and cameras == 1)
 
@@ -523,7 +524,7 @@ def process(args):
     if device_preset: print(f"Selected device type: {device_preset}", flush=True)
     else: print("Warning! Couldn't automatically detect device preset, to ensure best results suply one via --device_preset argument", flush=True)
 
-    if device_preset:
+    if device_preset and device_preset != 'custom':
         parameter_sets.append(device_preset)
 
     if device_preset == 'k4a':
@@ -551,8 +552,9 @@ def process(args):
         visualizer = Visualizer(visArgs)
 
     with open(tmp_input + "/vio_config.yaml", 'wt') as f:
-        base_params = 'parameterSets: %s' % json.dumps(parameter_sets)
-        f.write(base_params + '\n')
+        base_params = ('parameterSets: %s' % json.dumps(parameter_sets)) + '\n'
+        if device_preset == 'custom': base_params += custom_params
+        f.write(base_params)
         print(base_params)
 
     print(config)
