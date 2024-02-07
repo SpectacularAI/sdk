@@ -113,11 +113,11 @@ def process(args):
                 by_camera[cam_id] = params
 
             converted = {
-                'file_path': "./images/" + c['image_path'].split('/')[-1],
+                'file_path': os.path.join("./images", c['image_path'].split('/')[-1]),
                 "transform_matrix": transform_camera(c['T_pointcloud_camera'])
             }
             if 'depth_image_path' in c:
-                converted['depth_file_path'] = "./images/" + c['depth_image_path'].split('/')[-1]
+                converted['depth_file_path'] = os.path.join("./images", c['depth_image_path'].split('/')[-1])
 
             by_camera[cam_id]['frames'].append(converted)
 
@@ -390,12 +390,12 @@ def process(args):
 
                 oldImgName = f"{tmp_dir}/frame_{frameId:05}.{args.image_format}"
                 newImgName = f"{args.output}/images/frame_{index:05}.{args.image_format}"
-                os.rename(oldImgName, newImgName)
+                shutil.move(oldImgName, newImgName)
 
                 oldDepth = f"{tmp_dir}/depth_{frameId:05}.png"
                 newDepth = f"{args.output}/images/depth_{index:05}.png"
                 if os.path.exists(oldDepth):
-                    os.rename(oldDepth, newDepth)
+                    shutil.move(oldDepth, newDepth)
                     frame['depth_image_path'] = f"data/{name}/images/depth_{index:05}.png"
 
                 if (index + 3) % 7 == 0:
@@ -585,6 +585,9 @@ def process(args):
         print(f"Something went wrong! {e}", flush=True)
         raise e
 
+    # Make sure replay is closed, so that we can delete the tmp_input directory.
+    replay = None
+
     try:
         shutil.rmtree(tmp_dir)
     except:
@@ -619,4 +622,3 @@ if __name__ == '__main__':
         parser = define_args(parser)
         return parser.parse_args()
     process(parse_args())
-
