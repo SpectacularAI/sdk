@@ -20,6 +20,7 @@ def define_args(parser):
     parser.add_argument('--device_preset', choices=['none', 'oak-d', 'k4a', 'realsense', 'android', 'android-tof', 'ios-tof', 'orbbec-astra2', 'orbbec-femto'], help="Automatically detected in most cases")
     parser.add_argument('--fast', action='store_true', help='Fast but lower quality settings')
     parser.add_argument('--mono', action='store_true', help='Monocular mode: disable ToF and stereo data')
+    parser.add_argument('--internal', action='append', type=str, help='Internal override parameters in the form --internal=name:value')
     parser.add_argument('--image_format', type=str, default='jpg', help="Color image format (use 'png' for top quality)")
     parser.add_argument("--preview", help="Show latest primary image as a preview", action="store_true")
     parser.add_argument("--preview3d", help="Show 3D visualization", action="store_true")
@@ -538,6 +539,11 @@ def process(args):
 
     if args.device_preset:
         device_preset = args.device_preset
+
+    if args.internal is not None:
+        for param in args.internal:
+            k, _, v = param.partition(':')
+            config[k] = v
 
     if device_preset: print(f"Selected device type: {device_preset}", flush=True)
     else: print("Warning! Couldn't automatically detect device preset, to ensure best results suply one via --device_preset argument", flush=True)
