@@ -76,6 +76,26 @@ def blurScore(path):
     magnitude_spectrum = np.abs(f_transform_shifted)
     return np.percentile(magnitude_spectrum, 95)
 
+def point_cloud_data_frame_to_ply(df, out_fn):
+    with open(out_fn, 'wt') as f:
+        f.write('\n'.join([
+            'ply',
+            'format ascii 1.0',
+            'element vertex %d' % len(df),
+            'property float x',
+            'property float y',
+            'property float z',
+            'property uint8 red',
+            'property uint8 green',
+            'property uint8 blue',
+            'end_header'
+        ]) + '\n')
+        for _, row in df.iterrows():
+            r = []
+            for prop in 'xyz': r.append(row[prop])
+            for prop in 'rgb': r.append(int(row[prop]))
+            f.write(' '.join([str(v) for v in r]) + '\n')
+
 def convert_json_taichi_to_nerfstudio(d):
     import numpy as np
     def transform_camera(c):
@@ -102,7 +122,8 @@ def convert_json_taichi_to_nerfstudio(d):
             "w": c['camera_width'],
             "h": c['camera_height'],
             "aabb_scale": 16,
-            'frames': []
+            "frames": [],
+            "ply_file_path": "./sparse_pc.ply"
         }
         cam_id = json.dumps(params, sort_keys=True)
         if cam_id not in by_camera:
@@ -454,6 +475,9 @@ def process(args):
                     with open(fn, 'wt') as f:
                         for row in data:
                             f.write(' '.join([str(c) for c in row])+'\n')
+
+                # splatfacto point cloud format
+                point_cloud_data_frame_to_ply(merged_df, f"{args.output}/sparse_pc.ply")
 
                 write_colmap_csv(c_points, f"{fake_colmap}/points3D.txt")
                 write_colmap_csv(c_images, f"{fake_colmap}/images.txt")
