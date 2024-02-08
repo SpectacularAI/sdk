@@ -2,6 +2,9 @@
 Post-process data in Spectacular AI format and convert it to input
 for NeRF or Gaussian Splatting methods, or export optimized pointclouds in ply and pcd formats.
 """
+import json
+import os
+from collections import OrderedDict
 
 # --- The following mechanism allows using this both as a stand-alone
 # script and as a subcommand in sai-cli.
@@ -27,16 +30,176 @@ def define_subparser(subparsers):
     sub.set_defaults(func=process)
     return define_args(sub)
 
+def interpolate_missing_properties(df_source, df_query, k_nearest=3):
+    from scipy.spatial import KDTree
+    xyz = list('xyz')
+
+    print('generating a simplified point cloud (this may take a while...)')
+
+    tree = KDTree(df_source[xyz].values)
+    _, ii = tree.query(df_query[xyz], k=k_nearest)
+    n = df_query.shape[0]
+
+    df_result = pd.DataFrame(0, index=range(n), columns=df_source.columns)
+    df_result[xyz] = df_query[xyz]
+    other_cols = [c for c in df_source.columns if c not in xyz]
+
+    for i in range(n):
+        m = df_source.loc[ii[i].tolist(), other_cols].mean(axis=0)
+        df_result.loc[i, other_cols] = m
+
+    return df_result
+
+def exclude_points(df_source, df_exclude, radius):
+    from scipy.spatial import KDTree
+    xyz = list('xyz')
+    tree = KDTree(df_exclude[xyz].values)
+    ii = tree.query_ball_point(df_source[xyz], r=radius, return_length=True)
+    mask = [l == 0 for l in ii]
+    df_result = df_source.iloc[mask]
+    return df_result
+
+def voxel_decimate(df, cell_size):
+    def grouping_function(row):
+        return tuple([round(row[c] / cell_size) for c in 'xyz'])
+    grouped = df.assign(voxel_index=df.apply(grouping_function, axis=1)).groupby('voxel_index')
+    return grouped.first().reset_index()[[c for c in df.columns if c != 'voxel_index']]
+
+def blurScore(path):
+    import cv2
+    import numpy as np
+    image = cv2.imread(path)
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    f_transform = np.fft.fft2(gray)
+    f_transform_shifted = np.fft.fftshift(f_transform)
+    magnitude_spectrum = np.abs(f_transform_shifted)
+    return np.percentile(magnitude_spectrum, 95)
+
+def convert_json_taichi_to_nerfstudio(d):
+    import numpy as np
+    def transform_camera(c):
+        convention_change = np.array([
+            [1, 0, 0, 0],
+            [0,-1, 0, 0],
+            [0, 0,-1, 0],
+            [0, 0, 0, 1]
+        ])
+        return (np.array(c) @ convention_change).tolist()
+
+    by_camera = {}
+    for c in d:
+        k = c['camera_intrinsics']
+        params = {
+            "fl_x": k[0][0],
+            "fl_y": k[1][1],
+            "k1": 0,
+            "k2": 0,
+            "p1": 0,
+            "p2": 0,
+            "cx": k[0][2],
+            "cy": k[1][2],
+            "w": c['camera_width'],
+            "h": c['camera_height'],
+            "aabb_scale": 16,
+            'frames': []
+        }
+        cam_id = json.dumps(params, sort_keys=True)
+        if cam_id not in by_camera:
+            by_camera[cam_id] = params
+
+        converted = {
+            'file_path': os.path.join("./images", c['image_path'].split('/')[-1]),
+            "transform_matrix": transform_camera(c['T_pointcloud_camera'])
+        }
+        if 'depth_image_path' in c:
+            converted['depth_file_path'] = os.path.join("./images", c['depth_image_path'].split('/')[-1])
+
+        by_camera[cam_id]['frames'].append(converted)
+
+    if len(by_camera) != 1:
+        raise RuntimeError("unexpected number of cameras")
+
+    key, value = list(by_camera.items())[0]
+    return value
+
+# TODO: don't use "Taichi" as the intermediate format
+def convert_json_taichi_to_colmap(pose_data, points_df, sparse_observations, nerfstudio_fake_obs=True):
+    from scipy.spatial.transform import Rotation as R
+    import numpy as np
+
+    images = []
+    cameras = []
+    camera_id = 0
+    max_pt_id = 0
+    for image_id, c in enumerate(pose_data):
+        k = c['camera_intrinsics']
+        mat = np.linalg.inv(np.array(c['T_pointcloud_camera']))
+        qx,qy,qz,qw = R.from_matrix(mat[:3,:3]).as_quat()
+        q = [qw, qx, qy, qz]
+        p = list(mat[:3, 3])
+        images.append([image_id] + list(q) + list(p) + [camera_id, os.path.split(c['image_path'])[-1]])
+
+        points = []
+        for pt in sparse_observations.get(image_id, {}):
+            max_pt_id = max(max_pt_id, pt.id)
+            points.extend([pt.pixelCoordinates.x, pt.pixelCoordinates.y, pt.id])
+
+        if nerfstudio_fake_obs and len(points) == 0:
+            points = [100,100,0,200,200,1] # NeRFstudio loader will crash without this
+
+        images.append(points)
+
+        # TODO: variable intrinsics
+        if len(cameras) == 0:
+            cameras = [[
+                camera_id,
+                'PINHOLE',
+                c['camera_width'],
+                c['camera_height'],
+                k[0][0],
+                k[1][1],
+                k[0][2],
+                k[1][2]
+            ]]
+
+    points = []
+    for _, row in points_df.iterrows():
+        if 'id' in row:
+            point_id = row['id']
+        else:
+            point_id = 0
+
+        if point_id == 0:
+            point_id = max_pt_id + 1
+            max_pt_id += 1
+
+        point = [
+            int(point_id),
+            row['x'],
+            row['y'],
+            row['z'],
+            round(row['r']),
+            round(row['g']),
+            round(row['b'])
+        ]
+
+        # TODO: compute reprojection errors here if really necessary for some use case
+        if nerfstudio_fake_obs:
+            fake_err = 1
+            img_id, point_id = 0, 0
+            point.extend([fake_err, img_id, point_id])
+
+        points.append(point)
+
+    return points, images, cameras
+
 def process(args):
     import spectacularAI
     import cv2
-    import json
-    import os
     import shutil
     import tempfile
     import numpy as np
     import pandas as pd
-    from collections import OrderedDict
 
     # Overwrite format if output is set to pointcloud
     if args.output.endswith(".ply"):
@@ -45,157 +208,6 @@ def process(args):
         args.format = "pcd"
 
     useMono = None
-
-    def interpolate_missing_properties(df_source, df_query, k_nearest=3):
-        from scipy.spatial import KDTree
-        xyz = list('xyz')
-
-        print('generating a simplified point cloud (this may take a while...)')
-
-        tree = KDTree(df_source[xyz].values)
-        _, ii = tree.query(df_query[xyz], k=k_nearest)
-        n = df_query.shape[0]
-
-        df_result = pd.DataFrame(0, index=range(n), columns=df_source.columns)
-        df_result[xyz] = df_query[xyz]
-        other_cols = [c for c in df_source.columns if c not in xyz]
-
-        for i in range(n):
-            m = df_source.loc[ii[i].tolist(), other_cols].mean(axis=0)
-            df_result.loc[i, other_cols] = m
-
-        return df_result
-
-    def exclude_points(df_source, df_exclude, radius):
-        from scipy.spatial import KDTree
-        xyz = list('xyz')
-        tree = KDTree(df_exclude[xyz].values)
-        ii = tree.query_ball_point(df_source[xyz], r=radius, return_length=True)
-        mask = [l == 0 for l in ii]
-        df_result = df_source.iloc[mask]
-        return df_result
-
-    def voxel_decimate(df, cell_size):
-        def grouping_function(row):
-            return tuple([round(row[c] / cell_size) for c in 'xyz'])
-        grouped = df.assign(voxel_index=df.apply(grouping_function, axis=1)).groupby('voxel_index')
-        return grouped.first().reset_index()[[c for c in df.columns if c != 'voxel_index']]
-
-    def convert_json_taichi_to_nerfstudio(d):
-        def transform_camera(c):
-            convention_change = np.array([
-                [1, 0, 0, 0],
-                [0,-1, 0, 0],
-                [0, 0,-1, 0],
-                [0, 0, 0, 1]
-            ])
-            return (np.array(c) @ convention_change).tolist()
-
-        by_camera = {}
-        for c in d:
-            k = c['camera_intrinsics']
-            params = {
-                "fl_x": k[0][0],
-                "fl_y": k[1][1],
-                "k1": 0,
-                "k2": 0,
-                "p1": 0,
-                "p2": 0,
-                "cx": k[0][2],
-                "cy": k[1][2],
-                "w": c['camera_width'],
-                "h": c['camera_height'],
-                "aabb_scale": 16,
-                'frames': []
-            }
-            cam_id = json.dumps(params, sort_keys=True)
-            if cam_id not in by_camera:
-                by_camera[cam_id] = params
-
-            converted = {
-                'file_path': os.path.join("./images", c['image_path'].split('/')[-1]),
-                "transform_matrix": transform_camera(c['T_pointcloud_camera'])
-            }
-            if 'depth_image_path' in c:
-                converted['depth_file_path'] = os.path.join("./images", c['depth_image_path'].split('/')[-1])
-
-            by_camera[cam_id]['frames'].append(converted)
-
-        if len(by_camera) != 1:
-            raise RuntimeError("unexpected number of cameras")
-
-        key, value = list(by_camera.items())[0]
-        return value
-
-    # TODO: don't use "Taichi" as the intermediate format
-    def convert_json_taichi_to_colmap(pose_data, points_df, sparse_observations, nerfstudio_fake_obs=True):
-        from scipy.spatial.transform import Rotation as R
-
-        images = []
-        cameras = []
-        camera_id = 0
-        max_pt_id = 0
-        for image_id, c in enumerate(pose_data):
-            k = c['camera_intrinsics']
-            mat = np.linalg.inv(np.array(c['T_pointcloud_camera']))
-            qx,qy,qz,qw = R.from_matrix(mat[:3,:3]).as_quat()
-            q = [qw, qx, qy, qz]
-            p = list(mat[:3, 3])
-            images.append([image_id] + list(q) + list(p) + [camera_id, os.path.split(c['image_path'])[-1]])
-
-            points = []
-            for pt in sparse_observations.get(image_id, {}):
-                max_pt_id = max(max_pt_id, pt.id)
-                points.extend([pt.pixelCoordinates.x, pt.pixelCoordinates.y, pt.id])
-
-            if nerfstudio_fake_obs and len(points) == 0:
-                points = [100,100,0,200,200,1] # NeRFstudio loader will crash without this
-
-            images.append(points)
-
-            # TODO: variable intrinsics
-            if len(cameras) == 0:
-                cameras = [[
-                    camera_id,
-                    'PINHOLE',
-                    c['camera_width'],
-                    c['camera_height'],
-                    k[0][0],
-                    k[1][1],
-                    k[0][2],
-                    k[1][2]
-                ]]
-
-        points = []
-        for _, row in points_df.iterrows():
-            if 'id' in row:
-                point_id = row['id']
-            else:
-                point_id = 0
-
-            if point_id == 0:
-                point_id = max_pt_id + 1
-                max_pt_id += 1
-
-            point = [
-                int(point_id),
-                row['x'],
-                row['y'],
-                row['z'],
-                round(row['r']),
-                round(row['g']),
-                round(row['b'])
-            ]
-
-            # TODO: compute reprojection errors here if really necessary for some use case
-            if nerfstudio_fake_obs:
-                fake_err = 1
-                img_id, point_id = 0, 0
-                point.extend([fake_err, img_id, point_id])
-
-            points.append(point)
-
-        return points, images, cameras
 
     # Globals
     savedKeyFrames = {}
@@ -207,14 +219,6 @@ def process(args):
     visualizer = None
     isTracking = False
     finalMapWritten = False
-
-    def blurScore(path):
-        image = cv2.imread(path)
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        f_transform = np.fft.fft2(gray)
-        f_transform_shifted = np.fft.fftshift(f_transform)
-        magnitude_spectrum = np.abs(f_transform_shifted)
-        return np.percentile(magnitude_spectrum, 95)
 
     def post_process_point_clouds(globalPointCloud, sparse_point_cloud_df):
         # Save point clouds
