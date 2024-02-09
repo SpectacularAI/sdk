@@ -490,7 +490,7 @@ def process(args):
         try:
             processMappingOutput(output)
         except Exception as e:
-            print(f"Processing mapping output failed: {e}", flush=True)
+            print(f"ERROR: {e}", flush=True)
             raise e
 
     def copy_input_to_tmp_safe(input_dir, tmp_input):
