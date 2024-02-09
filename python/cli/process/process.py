@@ -32,6 +32,7 @@ def define_subparser(subparsers):
     return define_args(sub)
 
 def interpolate_missing_properties(df_source, df_query, k_nearest=3):
+    import pandas as pd
     from scipy.spatial import KDTree
     xyz = list('xyz')
 
@@ -271,17 +272,7 @@ def process(args):
 
         return merged_df
 
-    def onVioOutput(vioOutput):
-        nonlocal visualizer, isTracking
-        wasTracking = isTracking
-        isTracking = vioOutput.status == spectacularAI.TrackingStatus.TRACKING
-        if wasTracking and not isTracking:
-            print('warning: Lost tracking!')
-
-        if visualizer is not None:
-            visualizer.onVioOutput(vioOutput.getCameraPose(0), status=vioOutput.status)
-
-    def onMappingOutput(output):
+    def processMappingOutput(output):
         nonlocal savedKeyFrames
         nonlocal pointClouds
         nonlocal sparsePointColors
@@ -484,6 +475,23 @@ def process(args):
                 write_colmap_csv(c_cameras, f"{fake_colmap}/cameras.txt")
 
             finalMapWritten = True
+
+    def onVioOutput(vioOutput):
+        nonlocal visualizer, isTracking
+        wasTracking = isTracking
+        isTracking = vioOutput.status == spectacularAI.TrackingStatus.TRACKING
+        if wasTracking and not isTracking:
+            print('warning: Lost tracking!')
+
+        if visualizer is not None:
+            visualizer.onVioOutput(vioOutput.getCameraPose(0), status=vioOutput.status)
+
+    def onMappingOutput(output):
+        try:
+            processMappingOutput(output)
+        except Exception as e:
+            print(f"ERROR: {e}", flush=True)
+            raise e
 
     def copy_input_to_tmp_safe(input_dir, tmp_input):
         # also works if tmp dir is inside the input directory
