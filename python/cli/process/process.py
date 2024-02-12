@@ -124,6 +124,7 @@ def convert_json_taichi_to_nerfstudio(d):
             "h": c['camera_height'],
             "aabb_scale": 16,
             "frames": [],
+            "orientation_override": "none", # stops Nerfstudio from breaking our "up" direction
             "ply_file_path": "./sparse_pc.ply"
         }
         cam_id = json.dumps(params, sort_keys=True)
