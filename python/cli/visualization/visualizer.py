@@ -9,7 +9,7 @@ from OpenGL.GL import * # all prefixed with gl so OK to import *
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import pygame
 
-from .visualizer_renderers.util import lookAt, getOrthographicProjectionMatrixOpenGL
+from .visualizer_renderers.util import lookAt, getPerspectiveProjectionMatrixOpenGL, getOrthographicProjectionMatrixOpenGL
 from .visualizer_renderers.renderers import *
 
 class CameraMode(Enum):
@@ -363,7 +363,7 @@ class Visualizer:
             target = cameraToWorld[0:3, 3]
             if self.cameraSmooth: eye, target = self.cameraSmooth.update(eye, target, self.shouldPause)
             viewMatrix = self.cameraControls3D.transformViewMatrix(lookAt(eye, target, up))
-            projectionMatrix = cameraPose.camera.getProjectionMatrixOpenGL(near, far)
+            projectionMatrix = getPerspectiveProjectionMatrixOpenGL(60.0, self.aspectRatio, near, far)
         elif self.cameraMode == CameraMode.TOP_VIEW:
             eye = cameraToWorld[0:3, 3] + np.array([0, 0, 15])
             target = cameraToWorld[0:3, 3]

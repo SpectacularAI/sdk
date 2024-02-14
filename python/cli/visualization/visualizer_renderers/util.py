@@ -44,3 +44,12 @@ def getOrthographicProjectionMatrixOpenGL(left, right, bottom, top, near, far):
         [0, 0, 2 / (far - near), -(far + near) / (far - near)],
         [0, 0, 0, 1]
     ], dtype=np.float32)
+
+def getPerspectiveProjectionMatrixOpenGL(fovy, aspect, near, far):
+    f = 1.0 / np.tan(np.radians(fovy) / 2.0)
+    return np.array([
+        [f / aspect, 0, 0, 0],
+        [0, -f, 0, 0],
+        [0, 0, (far + near) / (far - near), -2.0 * far * near / (far - near)],
+        [0, 0, 1, 0]
+    ], dtype=np.float32)
