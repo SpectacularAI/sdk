@@ -16,6 +16,7 @@ void showUsage() {
         << "  --auto_subfolders, create timestamp-named subfolders for each recording" << std::endl
         << "  --recording_only, disables Vio" << std::endl
         << "  --resolution <value>, 400p or 800p" << std::endl
+        << "  --stereo_gray, use stereo gray mode without active depth or rgb" << std::endl
         << "  --brightness <value>" << std::endl
         << "  --contrast <value>" << std::endl
         << "  --exposure <value>" << std::endl
@@ -67,6 +68,8 @@ int main(int argc, char** argv) {
             config.recordingOnly = true;
         else if (argument == "--resolution")
             config.inputResolution = arguments.at(++i);
+        else if (argument == "--stereo_gray")
+            config.useRgb = false;
         else if (argument == "--brightness")
             colorConfig.brightness = std::stoi(arguments.at(++i));
         else if (argument == "--contrast")
