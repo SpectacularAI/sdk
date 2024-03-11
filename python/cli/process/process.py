@@ -599,7 +599,7 @@ def process(args):
     config['parameterSets'] = parameter_sets
     print(config)
 
-    replay = spectacularAI.Replay(args.input, mapperCallback = onMappingOutput, configuration = config, configurationPath = "")
+    replay = spectacularAI.Replay(args.input, mapperCallback = onMappingOutput, configuration = config, ignoreFolderConfiguration = True)
     replay.setOutputCallback(onVioOutput)
 
     try:
