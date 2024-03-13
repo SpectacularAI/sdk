@@ -4,6 +4,7 @@ for NeRF or Gaussian Splatting methods, or export optimized pointclouds in ply a
 """
 import json
 import os
+import math
 from collections import OrderedDict
 
 # --- The following mechanism allows using this both as a stand-alone
@@ -21,6 +22,8 @@ def define_args(parser):
     parser.add_argument('--fast', action='store_true', help='Fast but lower quality settings')
     parser.add_argument('--mono', action='store_true', help='Monocular mode: disable ToF and stereo data')
     parser.add_argument('--internal', action='append', type=str, help='Internal override parameters in the form --internal=name:value')
+    parser.add_argument('--blur_filter_range', type=int, default=4, help='Remove key frames that are the blurriest in a neighborhood of this size (0=disabled)')
+    parser.add_argument('--no_undistort', action='store_true', help='Do not undistort output images (only supported with certain devices)')
     parser.add_argument('--image_format', type=str, default='jpg', help="Color image format (use 'png' for top quality)")
     parser.add_argument("--preview", help="Show latest primary image as a preview", action="store_true")
     parser.add_argument("--preview3d", help="Show 3D visualization", action="store_true")
@@ -67,15 +70,34 @@ def voxel_decimate(df, cell_size):
     grouped = df.assign(voxel_index=df.apply(grouping_function, axis=1)).groupby('voxel_index')
     return grouped.first().reset_index()[[c for c in df.columns if c != 'voxel_index']]
 
-def blurScore(path):
-    import cv2
+
+def compute_cam_velocities(targetFrame, angularVelocity):
+    # Image and pose data
+    WToC = targetFrame.cameraPose.getWorldToCameraMatrix()
+    vW = targetFrame.cameraPose.velocity
+    vCam = WToC[:3, :3] @ [vW.x, vW.y, vW.z]
+    vAngCam = WToC[:3, :3] @ [angularVelocity.x, angularVelocity.y, angularVelocity.z]
+    return vCam, vAngCam
+
+def blurScore(WToC, vCam, vAngCam, targetFrame, exposureTime):
     import numpy as np
-    image = cv2.imread(path)
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    f_transform = np.fft.fft2(gray)
-    f_transform_shifted = np.fft.fftshift(f_transform)
-    magnitude_spectrum = np.abs(f_transform_shifted)
-    return np.percentile(magnitude_spectrum, 95)
+    sumVels = 0
+    n = 0
+    for mpObs in targetFrame.sparseFeatures:
+        pW = mpObs.position
+        pCam = (WToC @ [pW.x, pW.y, pW.z, 1])[:3]
+        pointVelCam = vCam + np.cross(vAngCam, pCam)
+        vPix = targetFrame.cameraPose.camera.getIntrinsicMatrix()[:2,:2] @ (pointVelCam[:2] / np.maximum(pCam[2], 1e-6))
+        n += 1
+        sumVels += np.linalg.norm(vPix)
+
+    if exposureTime > 0:
+        sumVels *= exposureTime
+
+    # print('blur score %g (n = %d)' % (float(sumVels) / max(n, 1), n))
+
+    if n == 0: return 1e6
+    return sumVels / n
 
 def point_cloud_data_frame_to_ply(df, out_fn):
     with open(out_fn, 'wt') as f:
@@ -97,16 +119,50 @@ def point_cloud_data_frame_to_ply(df, out_fn):
             for prop in 'rgb': r.append(int(row[prop]))
             f.write(' '.join([str(v) for v in r]) + '\n')
 
+def convert_distortion(cam):
+    coeffs = cam.get('distortionCoefficients', None)
+    if coeffs is None:
+        return None
+
+    if all([c == 0.0 for c in coeffs]): return None
+
+    get_coeffs = lambda names: dict(zip(names.split(), coeffs))
+
+    model = 'OPENCV'
+    if cam['model'] == 'brown-conrady':
+        r = get_coeffs('k1 k2 p1 p2 k3 k4 k5 k6')
+    elif cam['model'] == 'pinhole':
+        r = get_coeffs('k1 k2 k3')
+        r['p1'] = 0
+        r['p2'] = 0
+    elif cam['model'] == 'kannala-brandt4':
+        model = 'OPENCV_FISHEYE'
+        r = get_coeffs('k1 k2 k3 k4')
+    else:
+        raise RuntimeError(f"unsupported camera model: {cam['model']}")
+    r['model'] = model
+    r['cx'] = cam['principalPointX']
+    r['cy'] = cam['principalPointY']
+    r['fx'] = cam['focalLengthX']
+    r['fy'] = cam['focalLengthY']
+    return r
+
 def convert_json_taichi_to_nerfstudio(d):
     import numpy as np
-    def transform_camera(c):
-        convention_change = np.array([
-            [1, 0, 0, 0],
-            [0,-1, 0, 0],
-            [0, 0,-1, 0],
-            [0, 0, 0, 1]
-        ])
-        return (np.array(c) @ convention_change).tolist()
+    CAM_CONVENTION_CHANGE = np.array([
+        [1, 0, 0, 0],
+        [0,-1, 0, 0],
+        [0, 0,-1, 0],
+        [0, 0, 0, 1]
+    ])
+
+    INV_CAM_CONVENTION_CHANGE = CAM_CONVENTION_CHANGE # works for this particular matrix
+
+    def transform_matrix_cam_to_world(c):
+        return (np.array(c) @ CAM_CONVENTION_CHANGE).tolist()
+
+    def transform_camera_dir_vec(c):
+        return (INV_CAM_CONVENTION_CHANGE[:3, :3] @ c).tolist()
 
     by_camera = {}
     for c in d:
@@ -125,15 +181,29 @@ def convert_json_taichi_to_nerfstudio(d):
             "aabb_scale": 16,
             "frames": [],
             "orientation_override": "none", # stops Nerfstudio from breaking our "up" direction
+            "auto_scale_poses_override": False,
             "ply_file_path": "./sparse_pc.ply"
         }
+
+        distortion = c.get('camera_distortion', None)
+        if distortion is not None:
+            for k, v in distortion.items():
+                params[k] = v
+
+        for prop in ['rolling_shutter_time', 'exposure_time']:
+            if c[prop] is not None and c[prop] != 0:
+                params[prop] = c[prop]
+
         cam_id = json.dumps(params, sort_keys=True)
         if cam_id not in by_camera:
             by_camera[cam_id] = params
 
         converted = {
             'file_path': os.path.join("./images", c['image_path'].split('/')[-1]),
-            "transform_matrix": transform_camera(c['T_pointcloud_camera'])
+            "transform_matrix": transform_matrix_cam_to_world(c['T_pointcloud_camera']),
+            "camera_linear_velocity": transform_camera_dir_vec(c['camera_linear_velocity']),
+            "camera_angular_velocity": transform_camera_dir_vec(c['camera_angular_velocity']),
+            "motion_blur_score": c["motion_blur_score"]
         }
         if 'depth_image_path' in c:
             converted['depth_file_path'] = os.path.join("./images", c['depth_image_path'].split('/')[-1])
@@ -237,12 +307,16 @@ def process(args):
     savedKeyFrames = {}
     pointClouds = {}
     sparsePointColors = {}
+    blurScores = {}
     frameWidth = -1
     frameHeight = -1
     intrinsics = None
     visualizer = None
     isTracking = False
     finalMapWritten = False
+    exposureTime = 0
+    rollingShutterTime = 0
+    cameraDistortion = None
 
     def post_process_point_clouds(globalPointCloud, sparse_point_cloud_df):
         # Save point clouds
@@ -277,6 +351,7 @@ def process(args):
         nonlocal savedKeyFrames
         nonlocal pointClouds
         nonlocal sparsePointColors
+        nonlocal blurScores
         nonlocal frameWidth
         nonlocal frameHeight
         nonlocal intrinsics
@@ -312,7 +387,11 @@ def process(args):
                     frameWidth = targetFrame.image.getWidth()
                     frameHeight = targetFrame.image.getHeight()
 
-                undistortedFrame = frameSet.getUndistortedFrame(targetFrame)
+                frameSet = keyFrame.frameSet
+                if args.no_undistort:
+                    undistortedFrame = targetFrame
+                else:
+                    undistortedFrame = frameSet.getUndistortedFrame(targetFrame)
                 if intrinsics is None: intrinsics = undistortedFrame.cameraPose.camera.getIntrinsicMatrix()
                 img = undistortedFrame.image.toArray()
 
@@ -322,15 +401,40 @@ def process(args):
 
                 # Find colors for sparse features
                 SHOW_FEATURE_MARKERS = True
+                SHOW_MOTION_BLUR = False
+
+                WToC = targetFrame.cameraPose.getWorldToCameraMatrix()
+                vCam, vAngCam = compute_cam_velocities(targetFrame, keyFrame.angularVelocity)
+
+                blurScores[frameId] = blurScore(WToC, vCam, vAngCam, undistortedFrame, exposureTime)
+
                 for mpObs in undistortedFrame.sparseFeatures:
+                    pPix = [mpObs.pixelCoordinates.x, mpObs.pixelCoordinates.y]
+                    px = np.clip(round(pPix[0]), 0, img.shape[1]-1)
+                    py = np.clip(round(pPix[1]), 0, img.shape[0]-1)
                     if mpObs.id not in sparsePointColors:
-                        px = np.clip(round(mpObs.pixelCoordinates.x), 0, img.shape[1]-1)
-                        py = np.clip(round(mpObs.pixelCoordinates.y), 0, img.shape[0]-1)
                         rgb = list(img[py, px, ...].view(np.uint8))
                         sparsePointColors[mpObs.id] = rgb
-                        if args.preview and SHOW_FEATURE_MARKERS:
-                            MARKER_COLOR = (0, 255, 0)
-                            cv2.circle(bgrImage, (px, py), 5, MARKER_COLOR, thickness=1)
+                        markerColor = (0, 255, 0)
+                    else:
+                        markerColor = (0, 128, 0)
+
+                    if args.preview:
+                        if SHOW_FEATURE_MARKERS:
+                            cv2.circle(bgrImage, (px, py), 5, markerColor, thickness=1)
+                        if SHOW_MOTION_BLUR:
+                            BLUR_COLOR = (128, 255, 0)
+                            VISU_SCALE = 5
+
+                            pW = mpObs.position
+                            pCam = (WToC @ [pW.x, pW.y, pW.z, 1])[:3]
+                            pointVelCam = vCam + np.cross(vAngCam, pCam)
+                            vPix = undistortedFrame.cameraPose.camera.getIntrinsicMatrix()[:2,:2] @ (pointVelCam[:2] / np.maximum(pCam[2], 1e-6))
+                            dt = float(VISU_SCALE) / 30 # visualization only
+                            vPix *= dt
+                            blurBegin = [int(c) for c in pPix - vPix*dt/2]
+                            blurEnd = [int(c) for c in pPix + vPix*dt/2]
+                            cv2.line(bgrImage, (blurBegin[0], blurBegin[1]), (blurEnd[0], blurEnd[1]), BLUR_COLOR, thickness=1)
 
                 # Legacy: support SDK versions which also produced images where frameSet.depthFrame.image was None
                 if frameSet.depthFrame is not None and frameSet.depthFrame.image is not None and not useMono:
@@ -357,26 +461,32 @@ def process(args):
             sparseObservations = {}
             # OrderedDict to avoid undefined iteration order = different output files for the same input
             sparsePointCloud = OrderedDict()
-            imageSharpness = []
+            blurriness = []
             for frameId in output.map.keyFrames:
-                imageSharpness.append((frameId, blurScore(f"{tmp_dir}/frame_{frameId:05}.{args.image_format}")))
+                blurriness.append((frameId, blurScores.get(frameId, 1e6)))
 
             # Look two images forward and two backwards, if current frame is blurriest, don't use it
-            for i in range(len(imageSharpness)):
-                if i + 2 > len(imageSharpness): break
-                group = [imageSharpness[j+i] for j in range(-2,2)]
-                group.sort(key=lambda x : x[1])
-                cur = imageSharpness[i][0]
-                if group[0][0] == cur:
-                    blurryImages[cur] = True
+            if args.blur_filter_range != 0:
+                assert(args.blur_filter_range > 1)
+                blur_filter_radius_lo = int(math.ceil((args.blur_filter_range - 1) * 0.5))
+                blur_filter_radius_hi = int(math.floor((args.blur_filter_range - 1) * 0.5))
+                print('blur filter range [-%d, %d)' % (blur_filter_radius_lo, blur_filter_radius_hi+1))
+                for i in range(blur_filter_radius_lo, max(0, len(blurriness) - blur_filter_radius_hi)):
+                    group = [blurriness[j+i] for j in range(-blur_filter_radius_lo,blur_filter_radius_hi+1)]
+                    group.sort(key=lambda x : x[1])
+                    cur = blurriness[i][0]
+                    if group[0][0] == cur:
+                        blurryImages[cur] = True
 
             trainingFrames = []
             validationFrames = []
             globalPointCloud = []
-            index = 0
+            index = 1 # start from 1 to match COLMAP/Nerfstudio frame numbering (fragile!)
             name = os.path.split(args.output)[-1]
             for frameId in output.map.keyFrames:
-                if blurryImages.get(frameId): continue # Skip blurry images
+                if blurryImages.get(frameId):
+                    print('skipping blurry frame %s' % str(frameId))
+                    continue # Skip blurry images
 
                 # Image and pose data
                 keyFrame = output.map.keyFrames.get(frameId)
@@ -397,14 +507,23 @@ def process(args):
                 sparseObservations[frameId] = sparseObsForKeyFrame
 
                 # Camera data
+                vCam, vAngCam = compute_cam_velocities(targetFrame, keyFrame.angularVelocity)
                 frame = {
                     "image_path": f"data/{name}/images/frame_{index:05}.{args.image_format}",
                     "T_pointcloud_camera": cameraPose.getCameraToWorldMatrix().tolist(), # 4x4 matrix, the transformation matrix from camera coordinate to point cloud coordinate
                     "camera_intrinsics": intrinsics.tolist(), # 3x3 matrix, the camera intrinsics matrix K
+                    "camera_linear_velocity": vCam.tolist(),
+                    "camera_angular_velocity": vAngCam.tolist(),
+                    "rolling_shutter_time": rollingShutterTime,
+                    "motion_blur_score": blurScores.get(frameId, 1e6),
+                    "exposure_time": exposureTime,
                     "camera_height": frameHeight, # image height, in pixel
                     "camera_width": frameWidth, # image width, in pixel
                     "camera_id": index # camera id, not used
                 }
+
+                if cameraDistortion is not None:
+                    frame['camera_distortion'] = cameraDistortion
 
                 oldImgName = f"{tmp_dir}/frame_{frameId:05}.{args.image_format}"
                 newImgName = f"{args.output}/images/frame_{index:05}.{args.image_format}"
@@ -494,14 +613,14 @@ def process(args):
             print(f"ERROR: {e}", flush=True)
             raise e
 
-    def detect_device_preset(input_dir):
+    def parse_input_dir(input_dir):
         cameras = None
         calibrationJson = f"{input_dir}/calibration.json"
         if os.path.exists(calibrationJson):
             with open(calibrationJson) as f:
                 calibration = json.load(f)
                 if "cameras" in calibration:
-                    cameras = len(calibration["cameras"])
+                    cameras = calibration["cameras"]
         device = None
         metadataJson = f"{input_dir}/metadata.json"
         if os.path.exists(metadataJson):
@@ -540,9 +659,16 @@ def process(args):
 
     tmp_dir = tempfile.mkdtemp()
 
-    device_preset, cameras = detect_device_preset(args.input)
+    device_preset, cameras = parse_input_dir(args.input)
 
-    useMono = args.mono or (cameras != None and cameras == 1)
+    if cameras is not None:
+        cam = cameras[0]
+        exposureTime = cam.get('exposureTimeSeconds', 0)
+        rollingShutterTime = cam.get('shutterRollTimeSeconds', 0)
+        if args.no_undistort:
+            cameraDistortion = convert_distortion(cam)
+
+    useMono = args.mono or (cameras != None and len(cameras) == 1)
 
     if useMono: config['useStereo'] = False
 
