@@ -494,16 +494,6 @@ def process(args):
             print(f"ERROR: {e}", flush=True)
             raise e
 
-    def copy_input_to_tmp_safe(input_dir, tmp_input):
-        # also works if tmp dir is inside the input directory
-        os.makedirs(tmp_input, exist_ok=True)
-        shutil.rmtree(tmp_input)
-        os.makedirs(tmp_input)
-        for f in os.listdir(input_dir):
-            full_fn = os.path.join(input_dir, f)
-            if not os.path.isdir(full_fn): shutil.copy(full_fn, tmp_input)
-            elif f.startswith("frames"): shutil.copytree(full_fn, f"{tmp_input}/{f}", dirs_exist_ok=True)
-
     def detect_device_preset(input_dir):
         cameras = None
         calibrationJson = f"{input_dir}/calibration.json"
@@ -549,8 +539,6 @@ def process(args):
         os.makedirs(f"{args.output}/images", exist_ok=True)
 
     tmp_dir = tempfile.mkdtemp()
-    tmp_input = tempfile.mkdtemp()
-    copy_input_to_tmp_safe(args.input, tmp_input)
 
     device_preset, cameras = detect_device_preset(args.input)
 
@@ -608,13 +596,10 @@ def process(args):
         visArgs.showCameraModel = False
         visualizer = Visualizer(visArgs)
 
-    with open(tmp_input + "/vio_config.yaml", 'wt') as f:
-        base_params = 'parameterSets: %s' % json.dumps(parameter_sets)
-        f.write(base_params + '\n')
-        print(base_params)
-
+    config['parameterSets'] = parameter_sets
     print(config)
-    replay = spectacularAI.Replay(tmp_input, mapperCallback = onMappingOutput, configuration = config)
+
+    replay = spectacularAI.Replay(args.input, mapperCallback = onMappingOutput, configuration = config, ignoreFolderConfiguration = True)
     replay.setOutputCallback(onVioOutput)
 
     try:
@@ -628,18 +613,12 @@ def process(args):
         print(f"Something went wrong! {e}", flush=True)
         raise e
 
-    # Make sure replay is closed, so that we can delete the tmp_input directory.
     replay = None
 
     try:
         shutil.rmtree(tmp_dir)
     except:
         print(f"Failed to clean temporary directory, you can delete these files manually, they are no longer required: {tmp_dir}", flush=True)
-
-    try:
-        shutil.rmtree(tmp_input)
-    except:
-        print(f"Failed to clean temporary directory, you can delete these files manually, they are no longer required: {tmp_input}", flush=True)
 
     if not finalMapWritten:
         print('Mapping failed: no output generated')
