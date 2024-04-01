@@ -295,11 +295,13 @@ def process(args):
     import numpy as np
     import pandas as pd
 
+    PC_AND_MESH_FORMATS = ['ply', 'pcd', 'obj']
+
     # Overwrite format if output is set to pointcloud
-    if args.output.endswith(".ply"):
-        args.format = "ply"
-    elif args.output.endswith(".pcd"):
-        args.format = "pcd"
+    for fmt in PC_AND_MESH_FORMATS:
+        if args.output.endswith('.' + fmt):
+            args.format = fmt
+            break
 
     useMono = None
 
@@ -362,7 +364,9 @@ def process(args):
         if visualizer is not None:
             visualizer.onMappingOutput(output)
 
-        if args.format in ['ply', 'pcd']:
+        saveImages = True
+        if args.format in PC_AND_MESH_FORMATS:
+            saveImages = False
             if output.finalMap: finalMapWritten = True
             return
 
@@ -396,8 +400,9 @@ def process(args):
                 img = undistortedFrame.image.toArray()
 
                 bgrImage = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-                fileName = f"{tmp_dir}/frame_{frameId:05}.{args.image_format}"
-                cv2.imwrite(fileName, bgrImage)
+                if saveImages:
+                    fileName = f"{tmp_dir}/frame_{frameId:05}.{args.image_format}"
+                    cv2.imwrite(fileName, bgrImage)
 
                 # Find colors for sparse features
                 SHOW_FEATURE_MARKERS = True
@@ -440,8 +445,9 @@ def process(args):
                 if frameSet.depthFrame is not None and frameSet.depthFrame.image is not None and not useMono:
                     alignedDepth = frameSet.getAlignedDepthFrame(undistortedFrame)
                     depthData = alignedDepth.image.toArray()
-                    depthFrameName = f"{tmp_dir}/depth_{frameId:05}.png"
-                    cv2.imwrite(depthFrameName, depthData)
+                    if saveImages:
+                        depthFrameName = f"{tmp_dir}/depth_{frameId:05}.png"
+                        cv2.imwrite(depthFrameName, depthData)
 
                     DEPTH_PREVIEW = False
                     if args.preview and DEPTH_PREVIEW:
@@ -650,14 +656,20 @@ def process(args):
         "icpVoxelSize": min(args.key_frame_distance, 0.1)
     }
 
+    parameter_sets = ['wrapper-base']
+
+    tmp_dir = None
     if args.format in ['ply', 'pcd']:
         config["mapSavePath"] = args.output
+    elif args.format == 'obj':
+        assert not args.mono
+        config['recMeshSavePath'] = args.output
+        parameter_sets.append('meshing')
     else:
         # Clear output dir
         shutil.rmtree(f"{args.output}/images", ignore_errors=True)
         os.makedirs(f"{args.output}/images", exist_ok=True)
-
-    tmp_dir = tempfile.mkdtemp()
+        tmp_dir = tempfile.mkdtemp()
 
     device_preset, cameras = parse_input_dir(args.input)
 
@@ -673,7 +685,6 @@ def process(args):
     if useMono: config['useStereo'] = False
 
     prefer_icp = not args.no_icp and not useMono
-    parameter_sets = ['wrapper-base']
 
     if not args.fast:
         parameter_sets.append('offline-base')
@@ -741,10 +752,11 @@ def process(args):
 
     replay = None
 
-    try:
-        shutil.rmtree(tmp_dir)
-    except:
-        print(f"Failed to clean temporary directory, you can delete these files manually, they are no longer required: {tmp_dir}", flush=True)
+    if tmp_dir is not None:
+        try:
+            shutil.rmtree(tmp_dir)
+        except:
+            print(f"Failed to clean temporary directory, you can delete these files manually, they are no longer required: {tmp_dir}", flush=True)
 
     if not finalMapWritten:
         print('Mapping failed: no output generated')
