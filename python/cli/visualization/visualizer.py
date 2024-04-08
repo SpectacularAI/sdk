@@ -465,7 +465,7 @@ class Visualizer:
             output['height'] = height
             output['colorFormat'] = colorFormat
 
-        if self.outputQueueMutex:
+        with self.outputQueueMutex:
             self.outputQueue.append(output)
 
         # In live mode, future vio outputs are discarded
@@ -482,7 +482,7 @@ class Visualizer:
             "mapperOutput" : mapperOutput
         }
 
-        if self.outputQueueMutex:
+        with self.outputQueueMutex:
             self.outputQueue.append(output)
 
     def run(self):
@@ -497,10 +497,11 @@ class Visualizer:
             while True:
                 if self.shouldPause: break
 
-                if self.outputQueueMutex and len(self.outputQueue) > 0:
-                    output = self.outputQueue.pop(0)
-                else:
-                    break
+                with self.outputQueueMutex:
+                    if len(self.outputQueue) > 0:
+                        output = self.outputQueue.pop(0)
+                    else:
+                        break
 
                 if output["type"] == "vio":
                     vioOutput = output
