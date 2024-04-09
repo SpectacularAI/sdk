@@ -12,7 +12,7 @@ from collections import OrderedDict
 
 def define_args(parser):
     parser.add_argument("input", help="Path to folder with session to process")
-    parser.add_argument("output", help="Output folder, or filename with .ply or .pcd extension if exporting pointcloud")
+    parser.add_argument("output", help="Output folder, or filename with [.ply, .pcd] or [.obj] extension for exporting pointcloud or mesh")
     parser.add_argument('--format', choices=['taichi', 'nerfstudio'], default='nerfstudio', help='Output format.')
     parser.add_argument("--cell_size", help="Dense point cloud decimation cell size (meters)", type=float, default=0.1)
     parser.add_argument("--distance_quantile", help="Max point distance filter quantile (0 = disabled)", type=float, default=0.99)
