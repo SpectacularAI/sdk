@@ -42,6 +42,7 @@ def define_args(p):
     p.add_argument('--no_preview', help='Do not show a live preview', action="store_true")
     p.add_argument('--no_slam', help='Record with SLAM module disabled', action="store_true")
     p.add_argument('--recording_only', help='Do not run VIO, may be faster', action="store_true")
+    p.add_argument('--april_tag_path', help='Record with April Tags (path to tags.json)')
     p.add_argument('--disable_cameras', help='Prevents SDK from using cameras, for example to only record RGB camera and IMU', action="store_true")
     p.add_argument('--no_usb_speed_check', help='Disable USB speed check', action="store_true")
     # This can reduce CPU load while recording with the --no_feature_tracker option
@@ -148,6 +149,8 @@ def record(args):
         config.useStereo = False
     if args.recording_only:
         config.recordingOnly = True
+    if args.april_tag_path:
+        config.aprilTagPath = args.april_tag_path
     if args.disable_cameras:
         config.disableCameras = True
     if args.ffmpeg_codec is not None:
