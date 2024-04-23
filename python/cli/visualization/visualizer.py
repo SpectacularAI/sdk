@@ -2,7 +2,6 @@ import os
 import numpy as np
 import time
 
-from threading import Lock
 from enum import Enum
 from OpenGL.GL import * # all prefixed with gl so OK to import *
 
@@ -244,8 +243,8 @@ class Visualizer:
         self.shouldQuit = False
         self.shouldPause = False
         self.displayInitialized = False
-        self.outputQueue = []
-        self.outputQueueMutex = Lock()
+        self.vioOutputQueue = []
+        self.mapperOutputQueue = []
         self.clock = pygame.time.Clock()
 
         # Window
@@ -455,7 +454,8 @@ class Visualizer:
             "image" : None,
             "width" : self.targetResolution[0],
             "height" : self.targetResolution[1],
-            "colorFormat" : None
+            "colorFormat" : None,
+            "time" : time.time()
         }
         if image is not None:
             # Flip the image upside down for OpenGL.
@@ -464,9 +464,15 @@ class Visualizer:
             output['width'] = width
             output['height'] = height
             output['colorFormat'] = colorFormat
+        self.vioOutputQueue.append(output)
 
-        with self.outputQueueMutex:
-            self.outputQueue.append(output)
+        MAX_VIO_OUTPUT_QUEUE_SIZE = 25
+        while len(self.vioOutputQueue) > MAX_VIO_OUTPUT_QUEUE_SIZE:
+            if self.args.targetFps == 0:
+                time.sleep(0.01) # Blocks replay, avoids dropping vio outputs
+            else:
+                self.vioOutputQueue.pop(0)
+                print("Warning: Dropping vio output in visualizer (processing too slow!)")
 
         # In live mode, future vio outputs are discarded
         # In replay mode, Replay API is blocked -> no more vio outputs
@@ -479,16 +485,59 @@ class Visualizer:
 
         output = {
             "type" : "slam",
-            "mapperOutput" : mapperOutput
+            "mapperOutput" : mapperOutput,
+            "time" : time.time()
         }
+        self.mapperOutputQueue.append(output)
 
-        with self.outputQueueMutex:
-            self.outputQueue.append(output)
+        MAX_MAPPER_OUTPUT_QUEUE_SIZE = 10
+        if len(self.mapperOutputQueue) > MAX_MAPPER_OUTPUT_QUEUE_SIZE:
+            self.mapperOutputQueue.pop(0)
+            print("Warning: Dropping mapper output in visualizer (processing too slow!)")
 
     def run(self):
         vioOutput = None
         prevVioOutput = None
         wasTracking = False
+
+        def getNextOutput():
+            vioOutputTime = None if len(self.vioOutputQueue) == 0 else self.vioOutputQueue[0]["time"]
+            mapperOutputTime = None if len(self.mapperOutputQueue) == 0 else self.mapperOutputQueue[0]["time"]
+            if vioOutputTime is None:
+                if mapperOutputTime is None: return None
+                return self.mapperOutputQueue.pop(0)
+            if mapperOutputTime is None:
+                return self.vioOutputQueue.pop(0)
+            return self.vioOutputQueue.pop(0) if vioOutputTime < mapperOutputTime else self.mapperOutputQueue.pop(0)
+
+        def processVioOutput(output):
+            nonlocal vioOutput, prevVioOutput, wasTracking
+            vioOutput = output
+            if vioOutput['isTracking']:
+                wasTracking = True
+                cameraPose = vioOutput["cameraPose"]
+                self.poseTrail.append(cameraPose.getPosition())
+            else:
+                vioOutput = None
+                if wasTracking:
+                    self.__resetAfterLost()
+                    wasTracking = False
+
+        def processMapperOutput(output):
+            nonlocal vioOutput, prevVioOutput, wasTracking
+
+            mapperOutput = output["mapperOutput"]
+            if wasTracking: # Don't render if not tracking. Messes up this visualization easily
+                self.map.onMappingOutput(mapperOutput)
+            if mapperOutput.finalMap:
+                if self.args.keepOpenAfterFinalMap:
+                    self.showCameraFrustum = False
+                    self.showCameraModel = False
+                    if self.args.targetFps == 0: self.args.targetFps = 30 # No vio outputs -> set 30fps mode instead
+                    if self.cameraSmooth: self.cameraSmooth.reset() # Stop camera moving automatically
+                    vioOutput = prevVioOutput
+                else:
+                    self.shouldQuit = True
 
         while not self.shouldQuit:
             self.__processUserInput()
@@ -497,41 +546,18 @@ class Visualizer:
             while True:
                 if self.shouldPause: break
 
-                with self.outputQueueMutex:
-                    if len(self.outputQueue) > 0:
-                        output = self.outputQueue.pop(0)
-                    else:
-                        break
+                output = getNextOutput()
+                if output is None: break
 
                 if output["type"] == "vio":
-                    vioOutput = output
-                    if vioOutput['isTracking']:
-                        wasTracking = True
-                        cameraPose = vioOutput["cameraPose"]
-                        self.poseTrail.append(cameraPose.getPosition())
-                    else:
-                        vioOutput = None
-                        if wasTracking:
-                            self.__resetAfterLost()
-                            wasTracking = False
+                    processVioOutput(output)
 
                     # Render on all outputs if using target fps 0 (i.e. render on vio output mode)
-                    # unless they were dropped because visualization is running too slow.
                     if self.args.targetFps == 0: break
 
                 elif output["type"] == "slam":
-                    mapperOutput = output["mapperOutput"]
-                    if wasTracking: # Don't render if not tracking. Messes up this visualization easily
-                        self.map.onMappingOutput(mapperOutput)
-                    if mapperOutput.finalMap:
-                        if self.args.keepOpenAfterFinalMap:
-                            self.showCameraFrustum = False
-                            self.showCameraModel = False
-                            if self.args.targetFps == 0: self.args.targetFps = 30 # No vio outputs -> set 30fps mode instead
-                            if self.cameraSmooth: self.cameraSmooth.reset() # Stop camera moving automatically
-                            vioOutput = prevVioOutput
-                        else:
-                            self.shouldQuit = True
+                    processMapperOutput(output)
+
                 else:
                     print("Unknown output type: {}".format(output["type"]))
 
