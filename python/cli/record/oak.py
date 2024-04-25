@@ -40,6 +40,7 @@ def define_args(p):
     p.add_argument("--gray", help="Record (rectified) gray video data", action="store_true")
     p.add_argument("--no_convert", help="Skip converting h265 video file", action="store_true")
     p.add_argument('--no_preview', help='Do not show a live preview', action="store_true")
+    p.add_argument('--preview3d', help='Use more advanced visualizer instead of matplotlib', action="store_true")
     p.add_argument('--no_slam', help='Record with SLAM module disabled', action="store_true")
     p.add_argument('--recording_only', help='Do not run VIO, may be faster', action="store_true")
     p.add_argument('--april_tag_path', help='Record with April Tags (path to tags.json)')
@@ -169,8 +170,27 @@ def record(args):
 
     config.internalParameters = internalParameters
 
+    if args.no_preview:
+        plotter = None
+        visualizer = None
+    elif args.preview3d:
+        from spectacularAI.cli.visualization.visualizer import Visualizer, VisualizerArgs
+        visArgs = VisualizerArgs()
+        visArgs.targetFps = 30
+        visualizer = Visualizer(visArgs)
+        plotter = None
+        config.parameterSets.append('point-cloud')
+    else:
+        from spectacularAI.cli.visualization.vio_visu import make_plotter
+        import matplotlib.pyplot as plt
+        plotter, anim = make_plotter()
+        visualizer = None
+
+    def on_mapping_output(mapperOutput):
+        visualizer.onMappingOutput(mapperOutput)
+
     # Enable recoding by setting recordingFolder option
-    vio_pipeline = spectacularAI.depthai.Pipeline(pipeline, config)
+    vio_pipeline = spectacularAI.depthai.Pipeline(pipeline, config, None if visualizer is None else on_mapping_output)
 
     # Optionally also record other video streams not used by the Spectacular AI SDK, these
     # can be used for example to render AR content or for debugging.
@@ -214,7 +234,7 @@ def record(args):
         if vio_pipeline.monoRight: create_rgb_camera_control(vio_pipeline.monoRight)
 
     should_quit = threading.Event()
-    def main_loop(plotter=None):
+    def main_loop(plotter=None, visualizer=None):
         frame_number = 1
 
         deviceInfo = None
@@ -223,6 +243,9 @@ def record(args):
             if deviceInfo:
                 return depthai.Device(pipeline, deviceInfo=deviceInfo, maxUsbSpeed=depthai.UsbSpeed.SUPER_PLUS)
             return depthai.Device(pipeline)
+
+        def onMappingOutput(mapperOutput):
+            visualizer.onMappingOutput(mapperOutput)
 
         with createDevice() as device, vio_pipeline.startSession(device) as vio_session:
 
@@ -259,7 +282,7 @@ def record(args):
 
             print("Recording to '{0}'".format(config.recordingFolder))
             print("")
-            if plotter is not None:
+            if plotter is not None or visualizer is not None:
                 print("Close the visualization window to stop recording")
 
             while not should_quit.is_set():
@@ -280,6 +303,10 @@ def record(args):
                 if vio_session.hasOutput():
                     out = vio_session.getOutput()
                     progress = True
+
+                    if visualizer is not None:
+                        visualizer.onVioOutput(out.getCameraPose(0), status=out.status)
+
                     if plotter is not None:
                         if not plotter(json.loads(out.asJson())): break
 
@@ -309,19 +336,15 @@ def record(args):
                 print("Use ffmpeg to convert video into a viewable format:")
                 print("    " + ffmpegCommand)
 
-    if args.no_preview:
-        plotter = None
-    else:
-        from spectacularAI.cli.visualization.vio_visu import make_plotter
-        import matplotlib.pyplot as plt
-        plotter, anim = make_plotter()
-
-    reader_thread = threading.Thread(target = lambda: main_loop(plotter))
+    reader_thread = threading.Thread(target = lambda: main_loop(plotter, visualizer))
     reader_thread.start()
-    if plotter is None:
-        input("---- Press ENTER to stop recording ----")
-    else:
+    if visualizer is not None:
+        visualizer.run()
+    elif plotter is not None:
         plt.show()
+    else:
+        input("---- Press ENTER to stop recording ----")
+
     should_quit.set()
 
     reader_thread.join()
