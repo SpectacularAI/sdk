@@ -244,9 +244,6 @@ def record(args):
                 return depthai.Device(pipeline, deviceInfo=deviceInfo, maxUsbSpeed=depthai.UsbSpeed.SUPER_PLUS)
             return depthai.Device(pipeline)
 
-        def onMappingOutput(mapperOutput):
-            visualizer.onMappingOutput(mapperOutput)
-
         with createDevice() as device, vio_pipeline.startSession(device) as vio_session:
 
             if args.ir_dot_brightness > 0:
