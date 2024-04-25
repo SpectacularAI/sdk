@@ -25,6 +25,7 @@ def define_args(parser):
     parser.add_argument('--blur_filter_range', type=int, default=4, help='Remove key frames that are the blurriest in a neighborhood of this size (0=disabled)')
     parser.add_argument('--no_undistort', action='store_true', help='Do not undistort output images (only supported with certain devices)')
     parser.add_argument('--image_format', type=str, default='jpg', help="Color image format (use 'png' for top quality)")
+    parser.add_argument("--texturize", help="Add textures to mesh export (BETA)", action="store_true")
     parser.add_argument("--preview", help="Show latest primary image as a preview", action="store_true")
     parser.add_argument("--preview3d", help="Show 3D visualization", action="store_true")
     return parser
@@ -349,7 +350,7 @@ def process(args):
 
         return merged_df
 
-    def processMappingOutput(output):
+    def process_mapping_output(output):
         nonlocal savedKeyFrames
         nonlocal pointClouds
         nonlocal sparsePointColors
@@ -602,7 +603,7 @@ def process(args):
 
             finalMapWritten = True
 
-    def onVioOutput(vioOutput):
+    def on_vio_output(vioOutput):
         nonlocal visualizer, isTracking
         wasTracking = isTracking
         isTracking = vioOutput.status == spectacularAI.TrackingStatus.TRACKING
@@ -612,12 +613,22 @@ def process(args):
         if visualizer is not None:
             visualizer.onVioOutput(vioOutput.getCameraPose(0), status=vioOutput.status)
 
-    def onMappingOutput(output):
+    def on_mapping_output(output):
         try:
-            processMappingOutput(output)
+            process_mapping_output(output)
         except Exception as e:
             print(f"ERROR: {e}", flush=True)
-            raise e
+            raise
+
+    def is_already_rectified(input_dir):
+        vioConfigYaml = f"{input_dir}/vio_config.yaml"
+        if os.path.exists(vioConfigYaml):
+            with open(vioConfigYaml) as file:
+                for line in file:
+                    if "alreadyRectified" in line:
+                        _, value = line.split(":")
+                        return value.lower().strip() == "true"
+        return False
 
     def parse_input_dir(input_dir):
         cameras = None
@@ -661,9 +672,11 @@ def process(args):
     tmp_dir = None
     if args.format in ['ply', 'pcd']:
         config["mapSavePath"] = args.output
+        parameter_sets.append('point-cloud')
     elif args.format == 'obj':
         assert not args.mono
         config['recMeshSavePath'] = args.output
+        config['recTexturize'] = args.texturize
         parameter_sets.append('meshing')
     else:
         # Clear output dir
@@ -717,10 +730,9 @@ def process(args):
         if prefer_icp:
             parameter_sets.extend(['icp', 'realsense-icp'])
             if not args.fast: parameter_sets.append('offline-icp')
-        config['stereoPointCloudStride'] = 15
     elif device_preset == 'oak-d':
         config['stereoPointCloudMinDepth'] = 0.5
-        config['stereoPointCloudStride'] = 30
+        config['alreadyRectified'] = is_already_rectified(args.input) # rectification required for stereo point cloud
     elif device_preset is not None and "orbbec" in device_preset:
         if prefer_icp:
             parameter_sets.extend(['icp'])
@@ -736,8 +748,8 @@ def process(args):
     config['parameterSets'] = parameter_sets
     print(config)
 
-    replay = spectacularAI.Replay(args.input, mapperCallback = onMappingOutput, configuration = config, ignoreFolderConfiguration = True)
-    replay.setOutputCallback(onVioOutput)
+    replay = spectacularAI.Replay(args.input, mapperCallback = on_mapping_output, configuration = config, ignoreFolderConfiguration = True)
+    replay.setOutputCallback(on_vio_output)
 
     try:
         if visualizer is None:
