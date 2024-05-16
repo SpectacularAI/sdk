@@ -399,7 +399,9 @@ class Visualizer:
             if event.type == pygame.QUIT:
                 self.shouldQuit = True
             elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_q: self.shouldQuit = True
+                if event.key in self.args.customKeyDownCallbacks:
+                    self.args.customKeyDownCallbacks[event.key]()
+                elif event.key == pygame.K_q: self.shouldQuit = True
                 elif event.key == pygame.K_SPACE: self.shouldPause = not self.shouldPause
                 elif event.key == pygame.K_c:
                     self.cameraMode = self.cameraMode.next()
@@ -440,8 +442,6 @@ class Visualizer:
                     else: pygame.display.set_mode((w, h), DOUBLEBUF | OPENGL)
                 elif event.key == pygame.K_h:
                     self.printHelp()
-                if event.key in self.args.customKeyDownCallbacks:
-                    self.args.customKeyDownCallbacks[event.key]()
             else:
                 if self.cameraMode is CameraMode.THIRD_PERSON: self.cameraControls3D.update(event)
                 if self.cameraMode is CameraMode.TOP_VIEW: self.cameraControls2D.update(event)
