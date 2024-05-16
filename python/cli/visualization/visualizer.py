@@ -215,6 +215,7 @@ class VisualizerArgs:
 
     # Callbacks
     customRenderCallback = None # Used to render custom OpenGL objects in user code
+    customKeyDownCallbacks = {} # User callback is called when event.type == pygame.KEYDOWN and event.key == key
 
 class Recorder:
     def __init__(self, recordPath, resolution):
@@ -439,6 +440,8 @@ class Visualizer:
                     else: pygame.display.set_mode((w, h), DOUBLEBUF | OPENGL)
                 elif event.key == pygame.K_h:
                     self.printHelp()
+                if event.key in self.args.customKeyDownCallbacks:
+                    self.args.customKeyDownCallbacks[event.key]()
             else:
                 if self.cameraMode is CameraMode.THIRD_PERSON: self.cameraControls3D.update(event)
                 if self.cameraMode is CameraMode.TOP_VIEW: self.cameraControls2D.update(event)
