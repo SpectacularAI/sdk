@@ -35,6 +35,92 @@ def define_subparser(subparsers):
     sub.set_defaults(func=process)
     return define_args(sub)
 
+def parse_input_dir(input_dir):
+    cameras = None
+    calibrationJson = f"{input_dir}/calibration.json"
+    if os.path.exists(calibrationJson):
+        with open(calibrationJson) as f:
+            calibration = json.load(f)
+            if "cameras" in calibration:
+                cameras = calibration["cameras"]
+    device = None
+    metadataJson = f"{input_dir}/metadata.json"
+    if os.path.exists(metadataJson):
+        with open(metadataJson) as f:
+            metadata = json.load(f)
+            if metadata.get("platform") == "ios":
+                device = "ios-tof"
+    if device == None:
+        vioConfigYaml = f"{input_dir}/vio_config.yaml"
+        if os.path.exists(vioConfigYaml):
+            with open(vioConfigYaml) as file:
+                supported = ['oak-d', 'k4a', 'realsense', 'orbbec-astra2', 'orbbec-femto', 'android', 'android-tof']
+                for line in file:
+                    if "parameterSets" in line:
+                        for d in supported:
+                            if d in line:
+                                device = d
+                                break
+                    if device: break
+    return (device, cameras)
+
+def auto_config(device_preset,
+    key_frame_distance=0.1,
+    mono=False,
+    icp=True,
+    fast=False,
+    already_rectified=False,
+    internal=[]):
+
+    config = {
+        "maxMapSize": 0,
+        "useSlam": True,
+        "passthroughColorImages": True,
+        "keyframeDecisionDistanceThreshold": key_frame_distance,
+        "icpVoxelSize": min(key_frame_distance, 0.1)
+    }
+    parameter_sets = ['wrapper-base']
+
+    if mono: config['useStereo'] = False
+
+    prefer_icp = icp and not mono
+
+    if not fast:
+        parameter_sets.append('offline-base')
+        # remove these to further trade off speed for quality
+        mid_q = {
+            'maxKeypoints': 1000,
+            'optimizerMaxIterations': 30
+        }
+        for k, v in mid_q.items(): config[k] = v
+
+    if internal is not None:
+        for param in internal:
+            k, _, v = param.partition(':')
+            config[k] = v
+
+    if device_preset:
+        parameter_sets.append(device_preset)
+
+    if device_preset == 'k4a':
+        if prefer_icp:
+            parameter_sets.extend(['icp'])
+            if not fast: parameter_sets.append('offline-icp')
+    elif device_preset == 'realsense':
+        if prefer_icp:
+            parameter_sets.extend(['icp', 'realsense-icp'])
+            if not fast: parameter_sets.append('offline-icp')
+    elif device_preset == 'oak-d':
+        config['stereoPointCloudMinDepth'] = 0.5
+        config['alreadyRectified'] = already_rectified
+    elif device_preset is not None and "orbbec" in device_preset:
+        if prefer_icp:
+            parameter_sets.extend(['icp'])
+            if not fast: parameter_sets.append('offline-icp')
+
+    config['parameterSets'] = parameter_sets
+    return config
+
 def interpolate_missing_properties(df_source, df_query, k_nearest=3):
     import pandas as pd
     from scipy.spatial import KDTree
@@ -621,6 +707,7 @@ def process(args):
             raise
 
     def is_already_rectified(input_dir):
+        # hack for OAK-D
         vioConfigYaml = f"{input_dir}/vio_config.yaml"
         if os.path.exists(vioConfigYaml):
             with open(vioConfigYaml) as file:
@@ -630,61 +717,38 @@ def process(args):
                         return value.lower().strip() == "true"
         return False
 
-    def parse_input_dir(input_dir):
-        cameras = None
-        calibrationJson = f"{input_dir}/calibration.json"
-        if os.path.exists(calibrationJson):
-            with open(calibrationJson) as f:
-                calibration = json.load(f)
-                if "cameras" in calibration:
-                    cameras = calibration["cameras"]
-        device = None
-        metadataJson = f"{input_dir}/metadata.json"
-        if os.path.exists(metadataJson):
-            with open(metadataJson) as f:
-                metadata = json.load(f)
-                if metadata.get("platform") == "ios":
-                    device = "ios-tof"
-        if device == None:
-            vioConfigYaml = f"{input_dir}/vio_config.yaml"
-            if os.path.exists(vioConfigYaml):
-                with open(vioConfigYaml) as file:
-                    supported = ['oak-d', 'k4a', 'realsense', 'orbbec-astra2', 'orbbec-femto', 'android', 'android-tof']
-                    for line in file:
-                        if "parameterSets" in line:
-                            for d in supported:
-                                if d in line:
-                                    device = d
-                                    break
-                        if device: break
-        return (device, cameras)
+    device_preset, cameras = parse_input_dir(args.input)
 
-    config = {
-        "maxMapSize": 0,
-        "useSlam": True,
-        "passthroughColorImages": True,
-        "keyframeDecisionDistanceThreshold": args.key_frame_distance,
-        "icpVoxelSize": min(args.key_frame_distance, 0.1)
-    }
+    if args.device_preset:
+        device_preset = args.device_preset
 
-    parameter_sets = ['wrapper-base']
+    if device_preset: print(f"Selected device type: {device_preset}", flush=True)
+    else: print("Warning! Couldn't automatically detect device preset, to ensure best results suply one via --device_preset argument", flush=True)
+
+    useMono = args.mono or (cameras != None and len(cameras) == 1)
+
+    config = auto_config(device_preset,
+        key_frame_distance=args.key_frame_distance,
+        mono=useMono,
+        icp=not args.no_icp,
+        fast=args.fast,
+        internal=args.internal,
+        already_rectified=is_already_rectified(args.input)) # rectification required for stereo point cloud
 
     tmp_dir = None
     if args.format in ['ply', 'pcd']:
         config["mapSavePath"] = args.output
-        parameter_sets.append('point-cloud')
+        config['parameterSets'].append('point-cloud')
     elif args.format == 'obj':
         assert not args.mono
         config['recMeshSavePath'] = args.output
         config['recTexturize'] = args.texturize
-        parameter_sets.append('meshing')
+        config['parameterSets'].append('meshing')
     else:
         # Clear output dir
         shutil.rmtree(f"{args.output}/images", ignore_errors=True)
         os.makedirs(f"{args.output}/images", exist_ok=True)
         tmp_dir = tempfile.mkdtemp()
-
-    device_preset, cameras = parse_input_dir(args.input)
 
     if cameras is not None:
         cam = cameras[0]
@@ -693,51 +757,6 @@ def process(args):
         if args.no_undistort:
             cameraDistortion = convert_distortion(cam)
 
-    useMono = args.mono or (cameras != None and len(cameras) == 1)
-
-    if useMono: config['useStereo'] = False
-
-    prefer_icp = not args.no_icp and not useMono
-
-    if not args.fast:
-        parameter_sets.append('offline-base')
-        # remove these to further trade off speed for quality
-        mid_q = {
-            'maxKeypoints': 1000,
-            'optimizerMaxIterations': 30
-        }
-        for k, v in mid_q.items(): config[k] = v
-
-    if args.device_preset:
-        device_preset = args.device_preset
-
-    if args.internal is not None:
-        for param in args.internal:
-            k, _, v = param.partition(':')
-            config[k] = v
-
-    if device_preset: print(f"Selected device type: {device_preset}", flush=True)
-    else: print("Warning! Couldn't automatically detect device preset, to ensure best results suply one via --device_preset argument", flush=True)
-
-    if device_preset:
-        parameter_sets.append(device_preset)
-
-    if device_preset == 'k4a':
-        if prefer_icp:
-            parameter_sets.extend(['icp'])
-            if not args.fast: parameter_sets.append('offline-icp')
-    elif device_preset == 'realsense':
-        if prefer_icp:
-            parameter_sets.extend(['icp', 'realsense-icp'])
-            if not args.fast: parameter_sets.append('offline-icp')
-    elif device_preset == 'oak-d':
-        config['stereoPointCloudMinDepth'] = 0.5
-        config['alreadyRectified'] = is_already_rectified(args.input) # rectification required for stereo point cloud
-    elif device_preset is not None and "orbbec" in device_preset:
-        if prefer_icp:
-            parameter_sets.extend(['icp'])
-            if not args.fast: parameter_sets.append('offline-icp')
-
     if args.preview3d:
         from spectacularAI.cli.visualization.visualizer import Visualizer, VisualizerArgs
         visArgs = VisualizerArgs()
@@ -745,7 +764,6 @@ def process(args):
         visArgs.showCameraModel = False
         visualizer = Visualizer(visArgs)
 
-    config['parameterSets'] = parameter_sets
     print(config)
 
     replay = spectacularAI.Replay(args.input, mapperCallback = on_mapping_output, configuration = config, ignoreFolderConfiguration = True)
