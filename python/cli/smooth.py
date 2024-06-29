@@ -26,34 +26,77 @@ def define_subparser(subparsers):
 def compute_full_trajectory(keyFrames, poseTrails, outputToCam):
     import spectacularAI
     import numpy as np
+    from scipy.spatial.transform import Rotation as R
+    from scipy.spatial.transform import Slerp
+
+    deltas = []
+    for i, (tVio, trail) in enumerate(poseTrails):
+        if i == 0: continue
+
+        t1Trail, p1 = trail[0]
+        t0Trail, p0 = trail[1]
+        assert(t0Trail < t1Trail)
+
+        # TODO: support using older deltas
+        t1 = tVio
+        t0 = poseTrails[i - 1][0]
+        assert(t0 < t1)
+
+        fwd = np.linalg.inv(p0) @ p1
+        bwd = np.linalg.inv(p1) @ p0
+        deltas.append((t0, t1, fwd, bwd))
 
     trajectory = {}
     for kf in keyFrames.values():
         camPose = kf.frameSet.primaryFrame.cameraPose.pose
         pose = camPose.asMatrix() @ outputToCam
         trajectory[camPose.time] = (0, pose)
+        assert([camPose.time in [t for t, _ in poseTrails]])
 
-    # TODO: can be improved
-    STEP_PENALTY = 0.5
-    for tOlder, tNewer, newerToOlder in poseTrails[::-1]:
-        if tNewer in trajectory:
-            olderToNewer = np.linalg.inv(newerToOlder)
-            dt, poseNewer = trajectory[tNewer]
-            dt += tNewer - tOlder + STEP_PENALTY
-            if tOlder not in trajectory or trajectory[tOlder][0] > dt:
-                trajectory[tOlder] = (dt, poseNewer @ olderToNewer)
-        if tOlder in trajectory:
-            dt, poseOlder = trajectory[tOlder]
-            dt += tNewer - tOlder + STEP_PENALTY
-            if tNewer not in trajectory or trajectory[tNewer][0] > dt:
-                trajectory[tNewer] = (dt, poseOlder @ newerToOlder)
+    trajectoryFwd = { k: v for k, v in trajectory.items() }
+    for t0, t1, fwd, _ in deltas:
+        if t0 not in trajectoryFwd: continue
+        dt, pose0 = trajectoryFwd[t0]
+        dt += t1 - t0
+        if t1 not in trajectoryFwd or trajectoryFwd[t1][0] > dt:
+            trajectoryFwd[t1] = (dt, pose0 @ fwd)
 
-    for t in sorted(trajectory.keys()):
-        pose = spectacularAI.Pose.fromMatrix(t, trajectory[t][1])
+    trajectoryBwd = { k: v for k, v in trajectory.items() }
+    for t0, t1, _, bwd in deltas[::-1]:
+        if t1 not in trajectoryBwd: continue
+        dt, pose1 = trajectoryBwd[t1]
+        dt += t1 - t0
+        if t0 not in trajectoryBwd or trajectoryBwd[t0][0] > dt:
+            trajectoryBwd[t0] = (dt, pose1 @ bwd)
+
+    for t, _ in poseTrails:
+        if t not in trajectoryFwd:
+            if t not in trajectoryBwd:
+                print(f"Warning: missing pose at time {t}")
+                continue
+            pose = trajectoryBwd[t][1]
+        elif t not in trajectoryBwd:
+            pose = trajectoryFwd[t][1]
+        else:
+            dtFwd, poseFwd = trajectoryFwd[t]
+            dtBwd, poseBwd = trajectoryBwd[t]
+            if dtFwd == 0:
+                pose = poseFwd
+            elif dtBwd == 0:
+                pose = poseBwd
+            else:
+                thetaFwdToBwd = dtFwd / (dtFwd + dtBwd)
+                pose = np.eye(4)
+                pose[:3, 3] = poseFwd[:3, 3] * (1 - thetaFwdToBwd) + poseBwd[:3, 3] * thetaFwdToBwd
+                rFwd = poseFwd[:3, :3]
+                rBwd = poseBwd[:3, :3]
+                pose[:3, :3] = Slerp([0, 1], R.from_matrix([rFwd, rBwd]))([thetaFwdToBwd])[0].as_matrix()
+
+        p = spectacularAI.Pose.fromMatrix(t, pose)
         yield({
             'time': t,
-            'position': { c: getattr(pose.position, c) for c in 'xyz' },
-            'orientation': { c: getattr(pose.orientation, c) for c in 'wxyz' }
+            'position': { c: getattr(p.position, c) for c in 'xyz' },
+            'orientation': { c: getattr(p.orientation, c) for c in 'wxyz' }
         })
 
 def smooth(args):
@@ -114,9 +157,7 @@ def smooth(args):
             outToWorld = vioOutput.pose.asMatrix()
             outputToCam = np.linalg.inv(camToWorld) @ outToWorld
 
-        for p in vioOutput.poseTrail:
-            currentToPastPose = np.linalg.inv(p.asMatrix()) @ vioOutput.pose.asMatrix()
-            poseTrails.append((p.time, vioOutput.pose.time, currentToPastPose))
+        poseTrails.append((vioOutput.pose.time, [(p.time, p.asMatrix()) for p in vioOutput.poseTrail]))
 
         if visualizer is not None:
             visualizer.onVioOutput(vioOutput.getCameraPose(0), status=vioOutput.status)
