@@ -1,11 +1,14 @@
 """
-Post-process a session and generate a smoothed trajectory
+Post-process a session and generate a smoothed trajectory with all frames
 """
 import json
-from process.process import parse_input_dir, auto_config
 
-# --- The following mechanism allows using this both as a stand-alone
-# script and as a subcommand in sai-cli.
+try:
+    from process.process import parse_input_dir, auto_config
+except ImportError:
+    # hacky: The following mechanism allows using this both as a stand-alone
+    # script and as a subcommand in sai-cli.
+    from .process.process import parse_input_dir, auto_config
 
 def define_args(parser):
     parser.add_argument("input", help="Path to folder with session to process")
@@ -14,6 +17,8 @@ def define_args(parser):
     parser.add_argument("--key_frame_distance", help="Minimum distance between keyframes (meters)", type=float, default=0.15)
     parser.add_argument('--fast', action='store_true', help='Fast but lower quality settings')
     parser.add_argument('--internal', action='append', type=str, help='Internal override parameters in the form --internal=name:value')
+    parser.add_argument('-t0', '--start_time', type=float, default=None, help='Start time in seconds')
+    parser.add_argument('-t1', '--stop_time', type=float, default=None, help='Stop time in seconds')
     parser.add_argument("--preview", help="Show current key frame", action="store_true")
     parser.add_argument("--preview3d", help="Show 3D visualization", action="store_true")
     return parser
@@ -187,7 +192,20 @@ def smooth(args):
 
     print(config)
 
-    replay = spectacularAI.Replay(args.input, mapperCallback = on_mapping_output, configuration = config, ignoreFolderConfiguration = True)
+    replayArgs = dict(
+        mapperCallback=on_mapping_output,
+        configuration=config,
+        ignoreFolderConfiguration=True
+    )
+
+    # Requires SDK 1.35+
+    if args.start_time is not None:
+        replayArgs['startTime'] = args.start_time
+    if args.stop_time is not None:
+        replayArgs['stopTime'] = args.stop_time
+
+    replay = spectacularAI.Replay(args.input, **replayArgs)
+    replay.setPlaybackSpeed(-1) # full speed
     replay.setOutputCallback(on_vio_output)
 
     try:
