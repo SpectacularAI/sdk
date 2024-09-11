@@ -43,4 +43,13 @@ if(MSVC)
     COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:sai-record-orbbec> $<TARGET_FILE_DIR:sai-record-orbbec>
     COMMAND_EXPAND_LISTS
   )
+
+  # Explicitly copy live555.dll & ob_usb.dll (not included in TARGET_RUNTIME_DLLS:sai-record-orbbec)
+  # NOTE: remove these lines if using older OrbbecSDK without live555.dll and ob_usb.dll
+  set(LIVE555_DLL_PATH "${OrbbecSDK_LIBS_DIR}/live555.dll")
+  set(OB_USB_DLL_PATH "${OrbbecSDK_LIBS_DIR}/ob_usb.dll")
+  add_custom_command(TARGET sai-record-orbbec POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${LIVE555_DLL_PATH} $<TARGET_FILE_DIR:sai-record-orbbec>
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${OB_USB_DLL_PATH} $<TARGET_FILE_DIR:sai-record-orbbec>
+  )
 endif()
