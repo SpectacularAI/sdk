@@ -202,5 +202,8 @@ int main(int argc, char** argv) {
         inputThread.join();
     }
 
+    // Close VIO
+    session = nullptr;
+
     return 0;
 }

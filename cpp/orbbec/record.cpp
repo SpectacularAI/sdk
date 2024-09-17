@@ -248,5 +248,8 @@ int main(int argc, char *argv[]) {
         inputThread.join();
     }
 
+    // Close VIO
+    session = nullptr;
+
     return EXIT_SUCCESS;
 }
