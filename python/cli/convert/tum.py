@@ -24,17 +24,17 @@ def define_args(parser):
     parser.add_argument('output', help='Path to the output directory')
     parser.add_argument('--fps', type=int, default=20, help='Frames per second (metadata only)')
     parser.add_argument('--crf', type=int, default=15, help='FFmpeg video compression quality (0=lossless)')
+    parser.add_argument('--mono', action='store_true', help='Monocular mode')
 
 def convertVideo(files, output, fps, crf):
     # Use `-crf 0` for lossless compression.
-    subprocess.run(["ffmpeg",
+    subprocess.check_call(["ffmpeg",
         "-y",
         "-r", str(fps),
         "-f", "image2",
         "-pattern_type", "glob", "-i", files,
         "-c:v", "libx264",
-        # "-preset", "ultrafast",
-        "-preset", "veryslow",
+        "-preset", "veryfast",
         "-crf", str(crf),
         "-vf", "format=yuv420p",
         "-an",
@@ -85,7 +85,7 @@ def maybe_extract_tar_or_zip(path):
             except Exception as e:
                 print(f"Warning: Failed to delete temporary directory '{temp_dir}': {e}")
 
-def get_calibration(input_dir):
+def get_calibration(input_dir, stereo):
     calibration = { "cameras": [] }
 
     def convert_distortion(model, coeffs):
@@ -129,17 +129,23 @@ def get_calibration(input_dir):
         out['distortionCoefficients'] = coeffs
         return out
 
-    if os.path.exists(input_dir + "/dso/camchain.yaml"):
-        with open(input_dir + "/dso/camchain.yaml") as yamlFile:
+    if stereo:
+        cams = [0, 1]
+    else:
+        cams = [0]
+
+    dsoPath = os.path.join(input_dir, 'dso', 'camchain.yaml')
+    if os.path.exists(dsoPath):
+        with open(dsoPath) as yamlFile:
             data = yaml.load(yamlFile, Loader=yaml.FullLoader)
-            for i in [0, 1]:
+            for i in cams:
                 cam = "cam{}".format(i)
                 d = data[cam]
                 calibration["cameras"].append(convert_camera_model(d))
 
-    elif os.path.exists(input_dir + "/mav0/cam0/sensor.yaml"):
-        for cam in ["cam0", "cam1"]:
-            with open("{}/mav0/{}/sensor.yaml".format(input_dir, cam)) as f:
+    elif os.path.exists(os.path.join(input_dir, 'mav0', 'cam0', 'sensor.yaml')):
+        for cam in cams:
+            with open(os.path.join(input_dir, 'mav0', 'cam%d' % cam, 'sensor.yaml')) as f:
                 p = yaml.load(f, Loader=yaml.FullLoader)
                 calibration["cameras"].append(convert_camera_model(p))
     else:
@@ -148,10 +154,10 @@ def get_calibration(input_dir):
 
     return calibration
 
-def convert_with_existing_folders(rawPath, outPath, fps, crf):
-    calibration = get_calibration(rawPath)
+def convert_with_existing_folders(rawPath, outPath, fps, crf, stereo):
+    calibration = get_calibration(rawPath, stereo)
     if calibration is not None:
-        with open(outPath + "/calibration.json", "w") as f:
+        with open(os.path.join(outPath, "calibration.json"), "w") as f:
             f.write(json.dumps(calibration, indent=2))
 
     # The two stereo folder image files seem to be perfectly matched, unlike in the EuRoC data.
@@ -162,24 +168,32 @@ def convert_with_existing_folders(rawPath, outPath, fps, crf):
     timestamps = []
     timestamps0 = []
     timestamps1 = []
-    dir0 = "{}/mav0/cam0/data".format(rawPath)
-    dir1 = "{}/mav0/cam1/data".format(rawPath)
+    dir0 = os.path.join(rawPath, 'mav0', 'cam0', 'data')
+    dir1 = os.path.join(rawPath, 'mav0', 'cam1', 'data')
+    n_bad_frames = 0
     for filename in os.listdir(dir0):
         timestamps0.append(filename)
-    for filename in os.listdir(dir1):
-        timestamps1.append(filename)
+    if stereo:
+        for filename in os.listdir(dir1):
+            timestamps1.append(filename)
     for t in timestamps0:
-        if t not in timestamps1:
-            f = "{}/{}".format(dir0, t)
-            os.rename(f, f + "_hdn")
-            print(t, "not found in cam1, ignoring")
+        if stereo and t not in timestamps1:
+            n_bad_frames += 1
         else:
-            timestamps.append(int(os.path.splitext(t)[0]) / NS_TO_SECONDS)
-    for t in timestamps1:
-        if t not in timestamps0:
-            f = "{}/{}".format(dir1, t)
-            os.rename(f, f + "_hdn")
-            print(t, "not found in cam0, ignoring")
+            timestamps.append(int(os.path.splitext(t)[0]))
+
+    temp_dir = None
+    if n_bad_frames > 0:
+        print('Warning: {} frame(s) are missing in one of the stereo cameras, creating temp dir'.format(n_bad_frames))
+        assert(stereo)
+        temp_dir = tempfile.mkdtemp(prefix="fixed_frames_")
+        for cam in ["cam0", "cam1"]:
+            tmp_cam_dir = os.path.join(temp_dir, cam, 'data')
+            os.makedirs(tmp_cam_dir)
+            for t in timestamps:
+                src = os.path.join(rawPath, 'mav0', cam, 'data', '{}.png'.format(t))
+                dst = os.path.join(tmp_cam_dir, '{}.png'.format(t))
+                shutil.copyfile(src, dst)
 
     # shift timestamps to around zero to avoid floating point accuracy issues.
     timestamps = sorted(timestamps)
@@ -188,25 +202,26 @@ def convert_with_existing_folders(rawPath, outPath, fps, crf):
     output = []
     number = 0
     for timestamp in timestamps:
-        t = timestamp - t0
+        t = (timestamp - t0) / NS_TO_SECONDS
         x = {
             "number": number,
             "time": t,
             "frames": [
                 {"cameraInd": 0, "time": t},
-                {"cameraInd": 1, "time": t},
             ],
         }
+        if stereo:
+            x['frames'].append({"cameraInd": 1, "time": t})
         output.append(x)
         number += 1
 
-    with open(rawPath + '/mav0/imu0/data.csv') as csvfile:
+    with open(os.path.join(rawPath, 'mav0', 'imu0', 'data.csv')) as csvfile:
         # timestamp [ns],w_RS_S_x [rad s^-1],w_RS_S_y [rad s^-1],w_RS_S_z [rad s^-1],
         # a_RS_S_x [m s^-2],a_RS_S_y [m s^-2],a_RS_S_z [m s^-2]
         csvreader = csv.reader(csvfile, delimiter=',')
         next(csvreader) # Skip header
         for row in csvreader:
-            timestamp = int(row[0]) / NS_TO_SECONDS - t0
+            timestamp = (int(row[0]) - t0) / NS_TO_SECONDS
             output.append({
                 "sensor": {
                     "type": "gyroscope",
@@ -224,8 +239,8 @@ def convert_with_existing_folders(rawPath, outPath, fps, crf):
 
     gtPath = None
 
-    mocapPath = rawPath + '/mav0/mocap0/data.csv'
-    gtStatePath = rawPath + '/mav0/state_groundtruth_estimate0/data.csv'
+    mocapPath = os.path.join(rawPath, 'mav0', 'mocap0', 'data.csv')
+    gtStatePath = os.path.join(rawPath, 'mav0', 'state_groundtruth_estimate0', 'data.csv')
     if os.path.exists(mocapPath):
         gtPath = mocapPath
     elif os.path.exists(gtStatePath):
@@ -238,7 +253,7 @@ def convert_with_existing_folders(rawPath, outPath, fps, crf):
             csvreader = csv.reader(csvfile, delimiter=',')
             next(csvreader) # Skip header
             for row in csvreader:
-                timestamp = int(row[0]) / NS_TO_SECONDS - t0
+                timestamp = (int(row[0]) - t0) / NS_TO_SECONDS
                 output.append({
                     "groundTruth": {
                         "position": {
@@ -252,14 +267,29 @@ def convert_with_existing_folders(rawPath, outPath, fps, crf):
                 })
 
     output = sorted(output, key=lambda row: row["time"]) # Sort by time
-    with open(outPath + "/data.jsonl", "w") as f:
+    with open(os.path.join(outPath, 'data.jsonl'), "w") as f:
         for obj in output:
             f.write(json.dumps(obj, separators=(',', ':')))
             f.write("\n")
 
-    # convert videos last. This is the slowest step
-    convertVideo("{}/mav0/cam0/data/*.png".format(rawPath), "{}/data.mp4".format(outPath), fps, crf)
-    convertVideo("{}/mav0/cam1/data/*.png".format(rawPath), "{}/data2.mp4".format(outPath), fps, crf)
+    if not stereo:
+        # would be nicer if this was not needed
+        with open(os.path.join(outPath, 'vio_config.yaml'), 'w') as f:
+            f.write('useStereo: false')
+
+    if temp_dir is None:
+        video_dir = os.path.join(rawPath, 'mav0')
+    else:
+        video_dir = temp_dir
+    try:
+        # convert videos last. This is the slowest step
+        convertVideo(os.path.join(video_dir, 'cam0', 'data', '*.png'), os.path.join(outPath, 'data.mp4'), fps, crf)
+        if stereo:
+            convertVideo(os.path.join(video_dir, 'cam1', 'data', '*.png'), os.path.join(outPath, 'data2.mp4'), fps, crf)
+    finally:
+        if temp_dir:
+            shutil.rmtree(temp_dir)
+
 
 def convert(inputPath, outputPath, **kwargs):
     Path(outputPath).mkdir(parents=True, exist_ok=True)
@@ -267,7 +297,7 @@ def convert(inputPath, outputPath, **kwargs):
         convert_with_existing_folders(path, outputPath, **kwargs)
 
 def convert_cli(args):
-    convert(args.input, args.output, fps=args.fps, crf=args.crf)
+    convert(args.input, args.output, fps=args.fps, crf=args.crf, stereo=not args.mono)
 
 def define_subparser(subparsers):
     sub = subparsers.add_parser('tum',
