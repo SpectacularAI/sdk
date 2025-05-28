@@ -352,7 +352,12 @@ class Visualizer:
         if self.cameraMode == CameraMode.AR:
             if image is not None:
                 # draw AR background
-                glDrawPixels(width, height, GL_LUMINANCE if colorFormat == spectacularAI.ColorFormat.GRAY else GL_RGB, GL_UNSIGNED_BYTE, image.data)
+                glDrawPixels(
+                    width,
+                    height,
+                    GL_LUMINANCE if colorFormat == spectacularAI.ColorFormat.GRAY else GL_RGB,
+                    GL_UNSIGNED_BYTE,
+                    np.frombuffer(image.data, dtype=np.uint8))
             viewMatrix = cameraPose.getWorldToCameraMatrix()
             projectionMatrix = cameraPose.camera.getProjectionMatrixOpenGL(near, far)
             if self.args.flip: projectionMatrix = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]) @ projectionMatrix
