@@ -5,6 +5,7 @@ from .record.record import define_subparser as record_define_subparser
 from .convert.convert import define_subparser as convert_define_subparser
 from .smooth import define_subparser as smooth_define_subparser
 from .calibrate.calibrate import define_subparser as calibrate_define_subparser
+from .diagnose.diagnose import define_subparser as diagnose_define_subparser
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Spectacular AI command line tool')
@@ -14,6 +15,7 @@ def parse_args():
     smooth_define_subparser(subparsers)
     calibrate_define_subparser(subparsers)
     convert_define_subparser(subparsers)
+    diagnose_define_subparser(subparsers)
     return parser.parse_args()
 
 def main():
