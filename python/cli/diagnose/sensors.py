@@ -188,6 +188,7 @@ def plotFrame(
 
 def diagnoseCamera(data, output):
     data = data["cameras"]
+    output["cameras"] = []
 
     for ind in data.keys():
         camera = data[ind]
