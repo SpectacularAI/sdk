@@ -4,6 +4,8 @@ from enum import Enum
 SECONDS_TO_MILLISECONDS = 1e3
 CAMERA_MIN_FREQUENCY_HZ = 1.0
 IMU_MIN_FREQUENCY_HZ = 50.0
+MAGNETOMETER_MIN_FREQUENCY_HZ = 1.0
+BAROMETER_MIN_FREQUENCY_HZ = 1.0
 TO_PERCENT = 100.0
 
 DELTA_TIME_PLOT_KWARGS = {
@@ -297,7 +299,7 @@ def magnetometer(data, output):
     if len(timestamps) == 0: return
 
     status = Status()
-    deltaTimePlotColors = status.analyzeTimestamps(deltaTimes, IMU_MIN_FREQUENCY_HZ)
+    deltaTimePlotColors = status.analyzeTimestamps(deltaTimes, MAGNETOMETER_MIN_FREQUENCY_HZ)
     status.analyzeSignal(signal)
 
     output["magnetometer"] = {
@@ -315,6 +317,41 @@ def magnetometer(data, output):
                 timestamps[1:],
                 deltaTimes * SECONDS_TO_MILLISECONDS,
                 "Magnetometer time diff (ms)",
+                color=deltaTimePlotColors,
+                s=1,
+                **DELTA_TIME_PLOT_KWARGS)
+        ],
+        "frequency": 1.0 / np.median(deltaTimes),
+        "count": len(timestamps)
+    }
+    if status.diagnosis == DiagnosisLevel.ERROR:
+        output["passed"] = False
+
+def barometer(data, output):
+    timestamps = np.array(data["t"])
+    deltaTimes = np.array(data["td"])
+    signal = data['v']
+
+    if len(timestamps) == 0: return
+
+    status = Status()
+    deltaTimePlotColors = status.analyzeTimestamps(deltaTimes, BAROMETER_MIN_FREQUENCY_HZ)
+    status.analyzeSignal(signal)
+
+    output["barometer"] = {
+        "diagnosis": status.diagnosis.toString(),
+        "issues": status.issues,
+        "images": [
+            plotFrame(
+                timestamps,
+                signal,
+                "Barometer signal",
+                yLabel="Pressure (hPa)",
+                **SIGNAL_PLOT_KWARGS),
+            plotFrame(
+                timestamps[1:],
+                deltaTimes * SECONDS_TO_MILLISECONDS,
+                "Barometer time diff (ms)",
                 color=deltaTimePlotColors,
                 s=1,
                 **DELTA_TIME_PLOT_KWARGS)

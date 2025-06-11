@@ -43,11 +43,10 @@ def generateReport(args):
     else:
         plotFigures = True
 
-    SENSOR_NAMES = ["accelerometer", "gyroscope", "magnetometer"]
-
     accelerometer = {"x": [], "y": [], "z": [], "t": [], "td": []}
     gyroscope = {"x": [], "y": [], "z": [], "t": [], "td": []}
     magnetometer = {"x": [], "y": [], "z": [], "t": [], "td": []}
+    barometer = {"v": [], "t": [], "td": []}
     cpu = {"v": [], "t": []}
     cameras = {}
 
@@ -64,6 +63,7 @@ def generateReport(args):
                 continue
             time = measurement.get("time")
             sensor = measurement.get("sensor")
+            barometerMeasurement = measurement.get("barometer")
             frames = measurement.get("frames")
             metrics = measurement.get("systemMetrics")
             if frames is None and 'frame' in measurement:
@@ -71,7 +71,11 @@ def generateReport(args):
                 frames[0]['cameraInd'] = 0
 
             if time is None: continue
-            if sensor is None and frames is None and metrics is None: continue
+
+            if (sensor is None
+                and frames is None
+                and metrics is None
+                and barometerMeasurement is None): continue
 
             if startTime is None:
                 startTime = time
@@ -103,6 +107,12 @@ def generateReport(args):
                         diff = t - magnetometer["t"][-1]
                         magnetometer["td"].append(diff)
                     magnetometer["t"].append(t)
+            elif barometerMeasurement is not None:
+                barometer["v"].append(barometerMeasurement.get("pressureHectopascals", 0))
+                if len(barometer["t"]) > 0:
+                    diff = t - barometer["t"][-1]
+                    barometer["td"].append(diff)
+                barometer["t"].append(t)
             elif frames is not None:
                 for f in frames:
                     if f.get("missingBitmap", False): continue
@@ -129,6 +139,7 @@ def generateReport(args):
     sensors.accelerometer(accelerometer, output)
     sensors.gyroscope(gyroscope, output)
     sensors.magnetometer(magnetometer, output)
+    sensors.barometer(barometer, output)
     sensors.cpu(cpu, output)
 
     if args.output_json:
