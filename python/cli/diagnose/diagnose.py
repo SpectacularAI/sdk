@@ -6,8 +6,8 @@ import json
 import pathlib
 import sys
 
-from html1 import generateHtml
-import sensors
+from .html import generateHtml
+from .sensors import *
 
 def define_args(parser):
     parser.add_argument("dataset_path", type=pathlib.Path, help="Path to dataset")
@@ -128,12 +128,12 @@ def generateReport(args):
         if nSkipped > 0:
             print('skipped %d lines' % nSkipped)
 
-    sensors.camera(data, output)
-    sensors.accelerometer(data, output)
-    sensors.gyroscope(data, output)
-    sensors.magnetometer(data, output)
-    sensors.barometer(data, output)
-    sensors.cpu(data, output)
+    diagnoseCamera(data, output)
+    diagnoseAccelerometer(data, output)
+    diagnoseGyroscope(data, output)
+    diagnoseMagnetometer(data, output)
+    diagnoseBarometer(data, output)
+    diagnoseCpu(data, output)
 
     if args.output_json:
         with open(args.output_json, "w") as f:
