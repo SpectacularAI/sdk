@@ -51,12 +51,15 @@ class Status:
     def __updateDiagnosis(self, newDiagnosis):
         self.diagnosis = max(self.diagnosis, newDiagnosis)
 
-    def analyzeTimestamps(self, deltaTimes, minFrequencyHz, maxFrequencyHz):
+    def analyzeTimestamps(
+            self,
+            timestamps,
+            deltaTimes,
+            imuTimestamps,
+            minFrequencyHz,
+            maxFrequencyHz):
         WARNING_RELATIVE_DELTA_TIME = 0.1
         ERROR_DELTA_TIME_SECONDS = 0.5
-        COLOR_OK = (0, 1, 0) # Green
-        COLOR_WARNING = (1, 0.65, 0) # Orange
-        COLOR_ERROR = (1, 0, 0) # Red
 
         samplesInWrongOrder = 0
         duplicateTimestamps = 0
@@ -72,6 +75,9 @@ class Status:
         thresholdDataGap = ERROR_DELTA_TIME_SECONDS + medianDeltaTime
         thresholdDeltaTimeWarning = WARNING_RELATIVE_DELTA_TIME * medianDeltaTime
 
+        COLOR_OK = (0, 1, 0) # Green
+        COLOR_WARNING = (1, 0.65, 0) # Orange
+        COLOR_ERROR = (1, 0, 0) # Red
         deltaTimePlotColors = []
         for td in deltaTimes:
             error = abs(td - medianDeltaTime)
@@ -119,6 +125,22 @@ class Status:
         if frequency > maxFrequencyHz:
             self.issues.append(f"Maximum allowed frequency is {maxFrequencyHz:.1f}Hz but data is {frequency:.1f}Hz")
             self.__updateDiagnosis(DiagnosisLevel.ERROR)
+
+        # Check that timestamps overlap with IMU timestamps
+        if len(imuTimestamps) > 0:
+            t0 = np.min(imuTimestamps)
+            t1 = np.max(imuTimestamps)
+
+            invalidTimestamps = 0
+            for ts in timestamps:
+                if ts < t0 or ts > t1:
+                    invalidTimestamps += 1
+
+            MIN_OVERLAP = 0.99
+            if MIN_OVERLAP * total < invalidTimestamps:
+                self.issues.append(f"Found {invalidTimestamps} ({toPercent(invalidTimestamps)}) "
+                    "timestamps that don't overlap with IMU")
+                self.__updateDiagnosis(DiagnosisLevel.WARNING)
 
         return deltaTimePlotColors
 
@@ -186,12 +208,15 @@ def plotFrame(
 
     return base64(fig)
 
+def getImuTimestamps(data):
+    return data["accelerometer"]["t"]
+
 def diagnoseCamera(data, output):
-    data = data["cameras"]
+    sensor = data["cameras"]
     output["cameras"] = []
 
-    for ind in data.keys():
-        camera = data[ind]
+    for ind in sensor.keys():
+        camera = sensor[ind]
         timestamps = np.array(camera["t"])
         deltaTimes = np.array(camera["td"])
 
@@ -199,7 +224,9 @@ def diagnoseCamera(data, output):
 
         status = Status()
         deltaTimePlotColors = status.analyzeTimestamps(
+            timestamps,
             deltaTimes,
+            getImuTimestamps(data),
             CAMERA_MIN_FREQUENCY_HZ,
             CAMERA_MAX_FREQUENCY_HZ)
         cameraOutput = {
@@ -237,10 +264,10 @@ def diagnoseCamera(data, output):
         output["passed"] = False
 
 def diagnoseAccelerometer(data, output):
-    data = data["accelerometer"]
-    timestamps = np.array(data["t"])
-    deltaTimes = np.array(data["td"])
-    signal = data['v']
+    sensor = data["accelerometer"]
+    timestamps = np.array(sensor["t"])
+    deltaTimes = np.array(sensor["td"])
+    signal = sensor['v']
 
     if len(timestamps) == 0:
         # Accelerometer is required
@@ -254,7 +281,9 @@ def diagnoseAccelerometer(data, output):
 
     status = Status()
     deltaTimePlotColors = status.analyzeTimestamps(
+        timestamps,
         deltaTimes,
+        getImuTimestamps(data),
         IMU_MIN_FREQUENCY_HZ,
         IMU_MAX_FREQUENCY_HZ)
     status.analyzeSignal(signal)
@@ -285,10 +314,10 @@ def diagnoseAccelerometer(data, output):
         output["passed"] = False
 
 def diagnoseGyroscope(data, output):
-    data = data["gyroscope"]
-    timestamps = np.array(data["t"])
-    deltaTimes = np.array(data["td"])
-    signal = data['v']
+    sensor = data["gyroscope"]
+    timestamps = np.array(sensor["t"])
+    deltaTimes = np.array(sensor["td"])
+    signal = sensor['v']
 
     if len(timestamps) == 0:
         # Gyroscope is required
@@ -303,7 +332,9 @@ def diagnoseGyroscope(data, output):
 
     status = Status()
     deltaTimePlotColors = status.analyzeTimestamps(
+        timestamps,
         deltaTimes,
+        getImuTimestamps(data),
         IMU_MIN_FREQUENCY_HZ,
         IMU_MAX_FREQUENCY_HZ)
     status.analyzeSignal(signal)
@@ -334,16 +365,18 @@ def diagnoseGyroscope(data, output):
         output["passed"] = False
 
 def diagnoseMagnetometer(data, output):
-    data = data["magnetometer"]
-    timestamps = np.array(data["t"])
-    deltaTimes = np.array(data["td"])
-    signal = data['v']
+    sensor = data["magnetometer"]
+    timestamps = np.array(sensor["t"])
+    deltaTimes = np.array(sensor["td"])
+    signal = sensor['v']
 
     if len(timestamps) == 0: return
 
     status = Status()
     deltaTimePlotColors = status.analyzeTimestamps(
+        timestamps,
         deltaTimes,
+        getImuTimestamps(data),
         MAGNETOMETER_MIN_FREQUENCY_HZ,
         MAGNETOMETER_MAX_FREQUENCY_HZ)
     status.analyzeSignal(signal)
@@ -374,16 +407,18 @@ def diagnoseMagnetometer(data, output):
         output["passed"] = False
 
 def diagnoseBarometer(data, output):
-    data = data["barometer"]
-    timestamps = np.array(data["t"])
-    deltaTimes = np.array(data["td"])
-    signal = data['v']
+    sensor = data["barometer"]
+    timestamps = np.array(sensor["t"])
+    deltaTimes = np.array(sensor["td"])
+    signal = sensor['v']
 
     if len(timestamps) == 0: return
 
     status = Status()
     deltaTimePlotColors = status.analyzeTimestamps(
+        timestamps,
         deltaTimes,
+        getImuTimestamps(data),
         BAROMETER_MIN_FREQUENCY_HZ,
         BAROMETER_MAX_FREQUENCY_HZ)
     status.analyzeSignal(signal)
