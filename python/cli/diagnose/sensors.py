@@ -186,7 +186,7 @@ def plotFrame(
 
     return base64(fig)
 
-def camera(data, output):
+def diagnoseCamera(data, output):
     data = data["cameras"]
     output["cameras"] = []
 
@@ -232,7 +232,7 @@ def camera(data, output):
                 **SIGNAL_PLOT_KWARGS))
         output["cameras"].append(cameraOutput)
 
-def accelerometer(data, output):
+def diagnoseAccelerometer(data, output):
     data = data["accelerometer"]
     timestamps = np.array(data["t"])
     deltaTimes = np.array(data["td"])
@@ -272,7 +272,7 @@ def accelerometer(data, output):
     if status.diagnosis == DiagnosisLevel.ERROR:
         output["passed"] = False
 
-def gyroscope(data, output):
+def diagnoseGyroscope(data, output):
     data = data["gyroscope"]
     timestamps = np.array(data["t"])
     deltaTimes = np.array(data["td"])
@@ -312,7 +312,7 @@ def gyroscope(data, output):
     if status.diagnosis == DiagnosisLevel.ERROR:
         output["passed"] = False
 
-def magnetometer(data, output):
+def diagnoseMagnetometer(data, output):
     data = data["magnetometer"]
     timestamps = np.array(data["t"])
     deltaTimes = np.array(data["td"])
@@ -352,7 +352,7 @@ def magnetometer(data, output):
     if status.diagnosis == DiagnosisLevel.ERROR:
         output["passed"] = False
 
-def barometer(data, output):
+def diagnoseBarometer(data, output):
     data = data["barometer"]
     timestamps = np.array(data["t"])
     deltaTimes = np.array(data["td"])
@@ -391,7 +391,7 @@ def barometer(data, output):
     if status.diagnosis == DiagnosisLevel.ERROR:
         output["passed"] = False
 
-def cpu(data, output):
+def diagnoseCpu(data, output):
     data = data["cpu"]
     timestamps = np.array(data["t"])
     values = data["v"]
