@@ -4,12 +4,12 @@ from enum import Enum
 SECONDS_TO_MILLISECONDS = 1e3
 CAMERA_MIN_FREQUENCY_HZ = 1.0
 IMU_MIN_FREQUENCY_HZ = 50.0
+TO_PERCENT = 100.0
 
 DELTA_TIME_PLOT_KWARGS = {
     'plottype': 'scatter',
     'xlabel': "Time (s)",
-    'yLabel':"Time diff (ms)",
-    's': 1
+    'yLabel':"Time diff (ms)"
 }
 SIGNAL_PLOT_KWARGS = {
     'xlabel': "Time (s)",
@@ -36,118 +36,100 @@ class DiagnosisLevel(Enum):
     def toString(self):
         return self.name.lower()
 
-class Status(Enum):
-    OK = 0
-    BAD_DELTA_TIME = 1
-    DUPLICATE_TIMESTAMP = 2
-    DATA_GAP = 3
-    WRONG_ORDER = 4
-    LOW_FREQUENCY = 5
+class Status:
+    def __init__(self):
+        self.diagnosis = DiagnosisLevel.OK # Overall diagnosis of the data
+        self.issues = [] # Human readable list of issues found during analysis
 
-    def diagnosis(self):
-        if self == Status.OK:
-            return DiagnosisLevel.OK
-        elif self == Status.BAD_DELTA_TIME:
-            return DiagnosisLevel.WARNING
-        elif self == Status.DUPLICATE_TIMESTAMP:
-            return DiagnosisLevel.WARNING
-        elif self == Status.DATA_GAP:
-            return DiagnosisLevel.ERROR
-        elif self == Status.WRONG_ORDER:
-            return DiagnosisLevel.ERROR
-        elif self == Status.LOW_FREQUENCY:
-            return DiagnosisLevel.ERROR
-        else:
-            raise ValueError(f"Unknown status: {self}")
+    def __updateDiagnosis(self, newDiagnosis):
+        self.diagnosis = max(self.diagnosis, newDiagnosis)
 
-def computeStatusForSamples(deltaTimes, minFrequencyHz=None):
-    WARNING_RELATIVE_DELTA_TIME = 0.1
-    ERROR_DELTA_TIME_SECONDS = 0.5
+    def analyzeTimestamps(self, deltaTimes, minFrequencyHz=None):
+        WARNING_RELATIVE_DELTA_TIME = 0.1
+        ERROR_DELTA_TIME_SECONDS = 0.5
+        COLOR_OK = (0, 1, 0) # Green
+        COLOR_WARNING = (1, 0.65, 0) # Orange
+        COLOR_ERROR = (1, 0, 0) # Red
 
-    medianDeltaTime = np.median(deltaTimes)
-    thresholdDataGap = ERROR_DELTA_TIME_SECONDS + medianDeltaTime
-    thresholdDeltaTimeWarning = WARNING_RELATIVE_DELTA_TIME * medianDeltaTime
+        samplesInWrongOrder = 0
+        duplicateTimestamps = 0
+        dataGaps = 0
+        badDeltaTimes = 0
+        total = len(deltaTimes)
 
-    status = []
-    for td in deltaTimes:
-        error = abs(td - medianDeltaTime)
-        if td < 0:
-            status.append(Status.WRONG_ORDER)
-        elif td == 0:
-            status.append(Status.DUPLICATE_TIMESTAMP)
-        elif error > thresholdDataGap:
-            status.append(Status.DATA_GAP)
-        elif error > thresholdDeltaTimeWarning:
-            status.append(Status.BAD_DELTA_TIME)
-        else:
-            status.append(Status.OK)
+        def toPercent(value):
+            p = (value / total) * TO_PERCENT
+            return f"{p:.1f}%"
 
-    def getSummary(status):
-        ok = np.sum(status == Status.OK)
-        badDt = np.sum(status == Status.BAD_DELTA_TIME)
-        duplicate = np.sum(status == Status.DUPLICATE_TIMESTAMP)
-        dataGap = np.sum(status == Status.DATA_GAP)
-        wrongOrder = np.sum(status == Status.WRONG_ORDER)
+        medianDeltaTime = np.median(deltaTimes)
+        thresholdDataGap = ERROR_DELTA_TIME_SECONDS + medianDeltaTime
+        thresholdDeltaTimeWarning = WARNING_RELATIVE_DELTA_TIME * medianDeltaTime
 
-        diagnosis = DiagnosisLevel.OK
-        description = []
+        deltaTimePlotColors = []
+        for td in deltaTimes:
+            error = abs(td - medianDeltaTime)
+            if td < 0:
+                samplesInWrongOrder += 1
+                deltaTimePlotColors.append(COLOR_ERROR)
+            elif td == 0:
+                duplicateTimestamps += 1
+                deltaTimePlotColors.append(COLOR_ERROR)
+            elif error > thresholdDataGap:
+                dataGaps += 1
+                deltaTimePlotColors.append(COLOR_ERROR)
+            elif error > thresholdDeltaTimeWarning:
+                badDeltaTimes += 1
+                deltaTimePlotColors.append(COLOR_WARNING)
+            else:
+                deltaTimePlotColors.append(COLOR_OK)
+
+        if samplesInWrongOrder > 0:
+            self.issues.append(f"Found {samplesInWrongOrder} ({toPercent(samplesInWrongOrder)}) timestamps that are in non-chronological order.")
+            self.__updateDiagnosis(DiagnosisLevel.ERROR)
+
+        if duplicateTimestamps > 0:
+            self.issues.append(f"Found {duplicateTimestamps} ({toPercent(duplicateTimestamps)}) duplicate timestamps.")
+            self.__updateDiagnosis(DiagnosisLevel.ERROR)
+
+        if dataGaps > 0:
+            self.issues.append(f"Found {dataGaps} ({toPercent(dataGaps)}) pauses longer than {thresholdDataGap:.2f}seconds.")
+            self.__updateDiagnosis(DiagnosisLevel.ERROR)
+
+        if badDeltaTimes > 0:
+            self.issues.append(
+                f"Found {badDeltaTimes} ({toPercent(badDeltaTimes)}) timestamps that differ from "
+                f"expected delta time ({medianDeltaTime*SECONDS_TO_MILLISECONDS:.1f}ms) "
+                f"more than {thresholdDeltaTimeWarning*SECONDS_TO_MILLISECONDS:.1f}ms.")
+            MAX_BAD_DELTA_TIME_RATIO = 0.01
+            if MAX_BAD_DELTA_TIME_RATIO * total < badDeltaTimes:
+                self.__updateDiagnosis(DiagnosisLevel.WARNING)
 
         if minFrequencyHz is not None:
             frequency = 1.0 / medianDeltaTime
             if frequency < minFrequencyHz:
-                description.append(f"Minimum required frequency is {minFrequencyHz:.1f}Hz but data is {frequency:.1f}Hz")
-                diagnosis = max(diagnosis, Status.LOW_FREQUENCY.diagnosis())
+                self.issues.append(f"Minimum required frequency is {minFrequencyHz:.1f}Hz but data is {frequency:.1f}Hz")
+                self.__updateDiagnosis(DiagnosisLevel.ERROR)
 
-        if dataGap > 0:
-            description.append(f"Found {dataGap} pauses longer than {thresholdDataGap:.2f}seconds.")
-            diagnosis = max(diagnosis, Status.DATA_GAP.diagnosis())
+        return deltaTimePlotColors
 
-        if wrongOrder > 0:
-            description.append(f"Found {wrongOrder} timestamps that are in non-chronological order.")
-            diagnosis = max(diagnosis, Status.WRONG_ORDER.diagnosis())
+    def analyzeSignal(self, signal, maxDuplicateRatio=0.001):
+        prev = None
+        total = np.shape(signal)[0]
 
-        if duplicate > 0:
-            description.append(f"Found {duplicate} duplicate timestamps.")
-            MAX_DUPLICATE_TIMESTAMP_RATIO = 0.01
-            if MAX_DUPLICATE_TIMESTAMP_RATIO * ok < duplicate:
-                diagnosis = max(diagnosis, Status.DUPLICATE_TIMESTAMP.diagnosis())
+        def toPercent(value):
+            p = (value / total) * TO_PERCENT
+            return f"{p:.1f}%"
 
-        if badDt > 0:
-            description.append(
-                f"Found {badDt} timestamps that differ from "
-                f"expected delta time ({medianDeltaTime*SECONDS_TO_MILLISECONDS:.1f}ms) "
-                f"more than {thresholdDeltaTimeWarning*SECONDS_TO_MILLISECONDS:.1f}ms.")
-            MAX_BAD_DELTA_TIME_RATIO = 0.05
-            if MAX_BAD_DELTA_TIME_RATIO * ok < badDt:
-                diagnosis = max(diagnosis, Status.BAD_DELTA_TIME.diagnosis())
+        duplicateSamples = 0
+        for v in signal:
+            if prev is not None and v == prev:
+                duplicateSamples += 1
+            prev = v
 
-        return {
-            "diagnosis": diagnosis.toString(),
-            "ok": int(ok),
-            "bad_delta_time": int(badDt),
-            "duplicate_timestamp": int(duplicate),
-            "data_gap": int(dataGap),
-            "wrong_order": int(wrongOrder),
-            "description": description
-        }
-
-    def getDeltaTimePlotColors(status):
-        colors = np.zeros((len(status), 3))
-        for i, s in enumerate(status):
-            if s.diagnosis() == DiagnosisLevel.OK:
-                colors[i] = (0, 1, 0) # Green
-            elif s.diagnosis() == DiagnosisLevel.WARNING:
-                colors[i] = (1, 0.65, 0) # Orange
-            elif s.diagnosis() == DiagnosisLevel.ERROR:
-                colors[i] = (1, 0, 0) # Red
-            else:
-                raise ValueError(f"Unknown status: {s}")
-        return colors
-
-    status = np.array(status)
-    summary = getSummary(status)
-    colors = getDeltaTimePlotColors(status)
-    return  summary, colors
+        if duplicateSamples > 0:
+            self.issues.append(f"Found {duplicateSamples} ({toPercent(duplicateSamples)}) duplicate samples in the signal.")
+            if maxDuplicateRatio * total < duplicateSamples:
+                self.__updateDiagnosis(DiagnosisLevel.WARNING)
 
 def base64(fig):
     import io
@@ -198,31 +180,37 @@ def camera(data, output):
     output["cameras"] = []
     for ind in data.keys():
         camera = data[ind]
-        if len(camera["t"]) == 0: continue
+        timestamps = np.array(camera["t"])
+        deltaTimes = np.array(camera["td"])
 
-        status, colors = computeStatusForSamples(data[ind]["td"], CAMERA_MIN_FREQUENCY_HZ)
+        if len(timestamps) == 0: continue
+
+        status = Status()
+        deltaTimePlotColors = status.analyzeTimestamps(deltaTimes, CAMERA_MIN_FREQUENCY_HZ)
         cameraOutput = {
-            "status": status,
+            "diagnosis": status.diagnosis.toString(),
+            "issues": status.issues,
             "ind": ind,
-            "frequency": 1.0 / np.median(data[ind]["td"]),
-            "count": len(data[ind]["t"])
+            "frequency": 1.0 / np.median(deltaTimes),
+            "count": len(timestamps)
         }
 
-        if cameraOutput["status"]["diagnosis"] == DiagnosisLevel.ERROR.toString():
+        if status.diagnosis == DiagnosisLevel.ERROR:
             output["passed"] = False
 
         cameraOutput["images"] = [
             plotFrame(
-                camera["t"][1:],
-                np.array(camera["td"]) * SECONDS_TO_MILLISECONDS,
+                timestamps[1:],
+                deltaTimes * SECONDS_TO_MILLISECONDS,
                 f"Camera #{ind} frame time diff",
-                color=colors,
+                color=deltaTimePlotColors,
+                s=10,
                 **DELTA_TIME_PLOT_KWARGS)
         ]
 
         if camera.get("features"):
             cameraOutput["images"].append(plotFrame(
-                camera["t"],
+                timestamps,
                 camera["features"],
                 f"Camera #{ind} features",
                 yLabel="Number of features",
@@ -230,54 +218,75 @@ def camera(data, output):
         output["cameras"].append(cameraOutput)
 
 def accelerometer(data, output):
-    status, colors = computeStatusForSamples(data["td"], IMU_MIN_FREQUENCY_HZ)
+    timestamps = np.array(data["t"])
+    deltaTimes = np.array(data["td"])
+    signal = list(zip(data['x'], data['y'], data['z']))
+
+    if len(timestamps) == 0: return
+
+    status = Status()
+    deltaTimePlotColors = status.analyzeTimestamps(deltaTimes, IMU_MIN_FREQUENCY_HZ)
+    status.analyzeSignal(signal)
+
     output["accelerometer"] = {
-        "status": status,
+        "diagnosis": status.diagnosis.toString(),
+        "issues": status.issues,
         "images": [
             plotFrame(
-                data['t'],
-                list(zip(data['x'], data['y'], data['z'])),
+                timestamps,
+                signal,
                 "Accelerometer signal",
                 yLabel="Acceleration (m/s²)",
                 legend=['x', 'y', 'z'],
                 **SIGNAL_PLOT_KWARGS),
             plotFrame(
-                data["t"][1:],
-                np.array(data["td"]) * SECONDS_TO_MILLISECONDS,
+                timestamps[1:],
+                deltaTimes * SECONDS_TO_MILLISECONDS,
                 "Accelerometer time diff",
-                color=colors,
+                color=deltaTimePlotColors,
+                s=1,
                 **DELTA_TIME_PLOT_KWARGS)
         ],
-        "frequency": 1.0 / np.median(data["td"]),
-        "count": len(data["t"])
+        "frequency": 1.0 / np.median(deltaTimes),
+        "count": len(timestamps)
     }
-    if output["accelerometer"]["status"]["diagnosis"] == DiagnosisLevel.ERROR.toString():
+    if status.diagnosis == DiagnosisLevel.ERROR:
         output["passed"] = False
 
 def gyroscope(data, output):
-    status, colors = computeStatusForSamples(data["td"], IMU_MIN_FREQUENCY_HZ)
+    timestamps = np.array(data["t"])
+    deltaTimes = np.array(data["td"])
+    signal = list(zip(data['x'], data['y'], data['z']))
+
+    if len(timestamps) == 0: return
+
+    status = Status()
+    deltaTimePlotColors = status.analyzeTimestamps(deltaTimes, IMU_MIN_FREQUENCY_HZ)
+    status.analyzeSignal(signal)
 
     output["gyroscope"] = {
-        "status": status,
+        "diagnosis": status.diagnosis.toString(),
+        "issues": status.issues,
         "images": [
             plotFrame(
-                data["t"],
-                list(zip(data['x'], data['y'], data['z'])),
+                timestamps,
+                signal,
                 "Gyroscope signal",
                 yLabel="Gyroscope (rad/s)",
                 legend=['x', 'y', 'z'],
                 **SIGNAL_PLOT_KWARGS),
             plotFrame(
-                data["t"][1:],
-                np.array(data["td"]) * SECONDS_TO_MILLISECONDS,
+                timestamps[1:],
+                deltaTimes * SECONDS_TO_MILLISECONDS,
                 "Gyroscope time diff (ms)",
-                color=colors,
+                color=deltaTimePlotColors,
+                s=1,
                 **DELTA_TIME_PLOT_KWARGS)
         ],
-        "frequency": 1.0 / np.median(data["td"]),
-        "count": len(data["t"])
+        "frequency": 1.0 / np.median(deltaTimes),
+        "count": len(timestamps)
     }
-    if output["gyroscope"]["status"]["diagnosis"] == DiagnosisLevel.ERROR.toString():
+    if status.diagnosis == DiagnosisLevel.ERROR:
         output["passed"] = False
 
 def cpu(data, output):

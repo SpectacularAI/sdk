@@ -83,14 +83,7 @@ def passed(v, large=True):
     return '<%s class="%s">%s</%s>' % (tag, classes, text, tag)
 
 def status(sensor):
-    diagnosis = sensor["status"]["diagnosis"]
-    ok = sensor["status"]["ok"]
-    badDt = sensor["status"]["bad_delta_time"]
-    duplicate = sensor["status"]["duplicate_timestamp"]
-    dataGap = sensor["status"]["data_gap"]
-    wrongOrder = sensor["status"]["wrong_order"]
-    total = sensor["count"]
-    TO_PERCENT = 100.0 / total if total > 0 else 0
+    diagnosis = sensor["diagnosis"]
 
     if diagnosis == "ok":
         s = '<span class="passed">OK</span>'
@@ -101,26 +94,12 @@ def status(sensor):
     else:
         raise ValueError(f"Unknown diagnosis: {diagnosis}")
 
-    description = sensor["status"]["description"]
-    if len(description) > 0:
+    if len(sensor["issues"]) > 0:
         s += p('<b>Issues:</b>')
         s += "<ul>"
-        for msg in description:
+        for msg in sensor["issues"]:
             s += li(msg)
         s += "</ul>"
-
-    s += p("<b>Sample distribution</b>")
-    s += "<ul>"
-    s += li(f'OK: <span class="passed">{ok} ({ok*TO_PERCENT:.1f}%)</span>')
-    if badDt > 0:
-        s += li(f'Degraded delta times: <span class="warning">{badDt} ({badDt*TO_PERCENT:.1f}%)</span>')
-    if duplicate > 0:
-        s += li(f'Duplicate timestamps: <span class="warning">{duplicate} ({duplicate*TO_PERCENT:.1f}%)</span>')
-    if dataGap > 0:
-        s += li(f'Gaps in data: <span class="failed">{dataGap} ({dataGap*TO_PERCENT:.1f}%)</span>')
-    if wrongOrder > 0:
-        s += li(f'Timestamps in wrong order: <span class="failed">{wrongOrder} ({wrongOrder*TO_PERCENT:.1f}%)</span>')
-    s += "</ul>"
 
     return s
 
