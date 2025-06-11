@@ -232,13 +232,25 @@ def diagnoseCamera(data, output):
                 **SIGNAL_PLOT_KWARGS))
         output["cameras"].append(cameraOutput)
 
+    if len(output["cameras"]) == 0:
+        # Camera is required
+        output["passed"] = False
+
 def diagnoseAccelerometer(data, output):
     data = data["accelerometer"]
     timestamps = np.array(data["t"])
     deltaTimes = np.array(data["td"])
     signal = data['v']
 
-    if len(timestamps) == 0: return
+    if len(timestamps) == 0:
+        # Accelerometer is required
+        output["accelerometer"] = {
+            "diagnosis": DiagnosisLevel.ERROR.toString(),
+            "issues": ["Missing accelerometer data."],
+            "count": 0,
+            "images": []
+        }
+        return
 
     status = Status()
     deltaTimePlotColors = status.analyzeTimestamps(
@@ -250,6 +262,8 @@ def diagnoseAccelerometer(data, output):
     output["accelerometer"] = {
         "diagnosis": status.diagnosis.toString(),
         "issues": status.issues,
+        "frequency": 1.0 / np.median(deltaTimes),
+        "count": len(timestamps),
         "images": [
             plotFrame(
                 timestamps,
@@ -265,9 +279,7 @@ def diagnoseAccelerometer(data, output):
                 color=deltaTimePlotColors,
                 s=1,
                 **DELTA_TIME_PLOT_KWARGS)
-        ],
-        "frequency": 1.0 / np.median(deltaTimes),
-        "count": len(timestamps)
+        ]
     }
     if status.diagnosis == DiagnosisLevel.ERROR:
         output["passed"] = False
@@ -278,7 +290,16 @@ def diagnoseGyroscope(data, output):
     deltaTimes = np.array(data["td"])
     signal = data['v']
 
-    if len(timestamps) == 0: return
+    if len(timestamps) == 0:
+        # Gyroscope is required
+        output["gyroscope"] = {
+            "diagnosis": DiagnosisLevel.ERROR.toString(),
+            "issues": ["Missing gyroscope data."],
+            "count": 0,
+            "images": []
+        }
+        output["passed"] = False
+        return
 
     status = Status()
     deltaTimePlotColors = status.analyzeTimestamps(
@@ -290,6 +311,8 @@ def diagnoseGyroscope(data, output):
     output["gyroscope"] = {
         "diagnosis": status.diagnosis.toString(),
         "issues": status.issues,
+        "frequency": 1.0 / np.median(deltaTimes),
+        "count": len(timestamps),
         "images": [
             plotFrame(
                 timestamps,
@@ -305,9 +328,7 @@ def diagnoseGyroscope(data, output):
                 color=deltaTimePlotColors,
                 s=1,
                 **DELTA_TIME_PLOT_KWARGS)
-        ],
-        "frequency": 1.0 / np.median(deltaTimes),
-        "count": len(timestamps)
+        ]
     }
     if status.diagnosis == DiagnosisLevel.ERROR:
         output["passed"] = False
@@ -330,6 +351,8 @@ def diagnoseMagnetometer(data, output):
     output["magnetometer"] = {
         "diagnosis": status.diagnosis.toString(),
         "issues": status.issues,
+        "frequency": 1.0 / np.median(deltaTimes),
+        "count": len(timestamps),
         "images": [
             plotFrame(
                 timestamps,
@@ -345,9 +368,7 @@ def diagnoseMagnetometer(data, output):
                 color=deltaTimePlotColors,
                 s=1,
                 **DELTA_TIME_PLOT_KWARGS)
-        ],
-        "frequency": 1.0 / np.median(deltaTimes),
-        "count": len(timestamps)
+        ]
     }
     if status.diagnosis == DiagnosisLevel.ERROR:
         output["passed"] = False
@@ -370,6 +391,8 @@ def diagnoseBarometer(data, output):
     output["barometer"] = {
         "diagnosis": status.diagnosis.toString(),
         "issues": status.issues,
+        "frequency": 1.0 / np.median(deltaTimes),
+        "count": len(timestamps),
         "images": [
             plotFrame(
                 timestamps,
@@ -384,9 +407,7 @@ def diagnoseBarometer(data, output):
                 color=deltaTimePlotColors,
                 s=1,
                 **DELTA_TIME_PLOT_KWARGS)
-        ],
-        "frequency": 1.0 / np.median(deltaTimes),
-        "count": len(timestamps)
+        ]
     }
     if status.diagnosis == DiagnosisLevel.ERROR:
         output["passed"] = False

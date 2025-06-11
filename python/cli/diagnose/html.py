@@ -122,18 +122,22 @@ def generateHtml(output, output_html):
         ('Dataset', output["dataset_path"])
     ]
 
-    for camera in output["cameras"]:
-        kv_pairs.append((
-            'Camera #{}'.format(camera["ind"]),
-            '{:.1f}Hz {} frames'.format(
-                camera["frequency"],
-                camera["count"])))
+    if len(output["cameras"]) == 0:
+        kv_pairs.append(('Cameras', 'No data'))
+    else:
+        for camera in output["cameras"]:
+            kv_pairs.append((
+                'Camera #{}'.format(camera["ind"]),
+                '{:.1f}Hz {} frames'.format(
+                    camera["frequency"],
+                    camera["count"])))
 
     SENSOR_NAMES = ["accelerometer", "gyroscope", "magnetometer", "barometer"]
     for sensor in SENSOR_NAMES:
         if sensor not in output: continue
         kv_pairs.append((
             sensor.capitalize(),
+            'No data' if output[sensor]["count"] == 0 else
             '{:.1f}Hz {} samples'.format(
                 output[sensor]["frequency"],
                 output[sensor]["count"]
@@ -143,8 +147,16 @@ def generateHtml(output, output_html):
     if not output["passed"]: s += p("One or more checks below failed.")
     s += '</section>\n'
 
-    for camera in output["cameras"]:
-        s += generateSensor(camera, 'Camera #{}'.format(camera["ind"]))
+    if len(output["cameras"]) == 0:
+        camera = {
+            "diagnosis": "error",
+            "issues": ["Missing camera(s)."],
+            "images": []
+        }
+        s += generateSensor(camera, "Camera")
+    else:
+        for camera in output["cameras"]:
+            s += generateSensor(camera, 'Camera #{}'.format(camera["ind"]))
 
     for sensor in SENSOR_NAMES:
         if sensor not in output: continue
