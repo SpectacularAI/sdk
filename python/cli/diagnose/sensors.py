@@ -2,11 +2,16 @@ import numpy as np
 from enum import Enum
 
 SECONDS_TO_MILLISECONDS = 1e3
-CAMERA_MIN_FREQUENCY_HZ = 1.0
-IMU_MIN_FREQUENCY_HZ = 50.0
-MAGNETOMETER_MIN_FREQUENCY_HZ = 1.0
-BAROMETER_MIN_FREQUENCY_HZ = 1.0
 TO_PERCENT = 100.0
+
+CAMERA_MIN_FREQUENCY_HZ = 1.0
+CAMERA_MAX_FREQUENCY_HZ = 100.0
+IMU_MIN_FREQUENCY_HZ = 50.0
+IMU_MAX_FREQUENCY_HZ = 1e4
+MAGNETOMETER_MIN_FREQUENCY_HZ = 1.0
+MAGNETOMETER_MAX_FREQUENCY_HZ = 1e3
+BAROMETER_MIN_FREQUENCY_HZ = 1.0
+BAROMETER_MAX_FREQUENCY_HZ = 1e3
 
 DELTA_TIME_PLOT_KWARGS = {
     'plottype': 'scatter',
@@ -46,7 +51,7 @@ class Status:
     def __updateDiagnosis(self, newDiagnosis):
         self.diagnosis = max(self.diagnosis, newDiagnosis)
 
-    def analyzeTimestamps(self, deltaTimes, minFrequencyHz=None):
+    def analyzeTimestamps(self, deltaTimes, minFrequencyHz, maxFrequencyHz):
         WARNING_RELATIVE_DELTA_TIME = 0.1
         ERROR_DELTA_TIME_SECONDS = 0.5
         COLOR_OK = (0, 1, 0) # Green
@@ -106,11 +111,14 @@ class Status:
             if MAX_BAD_DELTA_TIME_RATIO * total < badDeltaTimes:
                 self.__updateDiagnosis(DiagnosisLevel.WARNING)
 
-        if minFrequencyHz is not None:
-            frequency = 1.0 / medianDeltaTime
-            if frequency < minFrequencyHz:
-                self.issues.append(f"Minimum required frequency is {minFrequencyHz:.1f}Hz but data is {frequency:.1f}Hz")
-                self.__updateDiagnosis(DiagnosisLevel.ERROR)
+        frequency = 1.0 / medianDeltaTime
+        if frequency < minFrequencyHz:
+            self.issues.append(f"Minimum required frequency is {minFrequencyHz:.1f}Hz but data is {frequency:.1f}Hz")
+            self.__updateDiagnosis(DiagnosisLevel.ERROR)
+
+        if frequency > maxFrequencyHz:
+            self.issues.append(f"Maximum allowed frequency is {maxFrequencyHz:.1f}Hz but data is {frequency:.1f}Hz")
+            self.__updateDiagnosis(DiagnosisLevel.ERROR)
 
         return deltaTimePlotColors
 
@@ -190,7 +198,10 @@ def camera(data, output):
         if len(timestamps) == 0: continue
 
         status = Status()
-        deltaTimePlotColors = status.analyzeTimestamps(deltaTimes, CAMERA_MIN_FREQUENCY_HZ)
+        deltaTimePlotColors = status.analyzeTimestamps(
+            deltaTimes,
+            CAMERA_MIN_FREQUENCY_HZ,
+            CAMERA_MAX_FREQUENCY_HZ)
         cameraOutput = {
             "diagnosis": status.diagnosis.toString(),
             "issues": status.issues,
@@ -230,7 +241,10 @@ def accelerometer(data, output):
     if len(timestamps) == 0: return
 
     status = Status()
-    deltaTimePlotColors = status.analyzeTimestamps(deltaTimes, IMU_MIN_FREQUENCY_HZ)
+    deltaTimePlotColors = status.analyzeTimestamps(
+        deltaTimes,
+        IMU_MIN_FREQUENCY_HZ,
+        IMU_MAX_FREQUENCY_HZ)
     status.analyzeSignal(signal)
 
     output["accelerometer"] = {
@@ -267,7 +281,10 @@ def gyroscope(data, output):
     if len(timestamps) == 0: return
 
     status = Status()
-    deltaTimePlotColors = status.analyzeTimestamps(deltaTimes, IMU_MIN_FREQUENCY_HZ)
+    deltaTimePlotColors = status.analyzeTimestamps(
+        deltaTimes,
+        IMU_MIN_FREQUENCY_HZ,
+        IMU_MAX_FREQUENCY_HZ)
     status.analyzeSignal(signal)
 
     output["gyroscope"] = {
@@ -304,7 +321,10 @@ def magnetometer(data, output):
     if len(timestamps) == 0: return
 
     status = Status()
-    deltaTimePlotColors = status.analyzeTimestamps(deltaTimes, MAGNETOMETER_MIN_FREQUENCY_HZ)
+    deltaTimePlotColors = status.analyzeTimestamps(
+        deltaTimes,
+        MAGNETOMETER_MIN_FREQUENCY_HZ,
+        MAGNETOMETER_MAX_FREQUENCY_HZ)
     status.analyzeSignal(signal)
 
     output["magnetometer"] = {
@@ -341,7 +361,10 @@ def barometer(data, output):
     if len(timestamps) == 0: return
 
     status = Status()
-    deltaTimePlotColors = status.analyzeTimestamps(deltaTimes, BAROMETER_MIN_FREQUENCY_HZ)
+    deltaTimePlotColors = status.analyzeTimestamps(
+        deltaTimes,
+        BAROMETER_MIN_FREQUENCY_HZ,
+        BAROMETER_MAX_FREQUENCY_HZ)
     status.analyzeSignal(signal)
 
     output["barometer"] = {
