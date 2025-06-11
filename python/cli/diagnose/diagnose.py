@@ -43,12 +43,23 @@ def generateReport(args):
     else:
         plotFigures = True
 
-    accelerometer = {"x": [], "y": [], "z": [], "t": [], "td": []}
-    gyroscope = {"x": [], "y": [], "z": [], "t": [], "td": []}
-    magnetometer = {"x": [], "y": [], "z": [], "t": [], "td": []}
-    barometer = {"v": [], "t": [], "td": []}
-    cpu = {"v": [], "t": []}
-    cameras = {}
+    data = {
+        'accelerometer': {"v": [], "t": [], "td": []},
+        'gyroscope': {"v": [], "t": [], "td": []},
+        'magnetometer': {"v": [], "t": [], "td": []},
+        'barometer': {"v": [], "t": [], "td": []},
+        'cpu': {"v": [], "t": []},
+        'cameras': {}
+    }
+
+    def addMeasurement(type, t, v):
+        assert type in data, f"Unknown sensor type: {type}"
+        sensorData = data[type]
+        sensorData['v'].append(v)
+        if len(sensorData["t"]) > 0:
+            diff = t - sensorData["t"][-1]
+            sensorData["td"].append(diff)
+        sensorData["t"].append(t)
 
     startTime = None
     timeOffset = 0
@@ -89,33 +100,15 @@ def generateReport(args):
             t = time - timeOffset
             if sensor is not None:
                 measurementType = sensor["type"]
-                if measurementType == "accelerometer":
-                    for i, c in enumerate('xyz'): accelerometer[c].append(sensor["values"][i])
-                    if len(accelerometer["t"]) > 0:
-                        diff = t - accelerometer["t"][-1]
-                        accelerometer["td"].append(diff)
-                    accelerometer["t"].append(t)
-                elif measurementType == "gyroscope":
-                    for i, c in enumerate('xyz'): gyroscope[c].append(sensor["values"][i])
-                    if len(gyroscope["t"]) > 0:
-                        diff = t - gyroscope["t"][-1]
-                        gyroscope["td"].append(diff)
-                    gyroscope["t"].append(t)
-                elif measurementType == "magnetometer":
-                    for i, c in enumerate('xyz'): magnetometer[c].append(sensor["values"][i])
-                    if len(magnetometer["t"]) > 0:
-                        diff = t - magnetometer["t"][-1]
-                        magnetometer["td"].append(diff)
-                    magnetometer["t"].append(t)
+                if measurementType in ["accelerometer", "gyroscope", "magnetometer"]:
+                    v = [sensor["values"][i] for i in range(3)]
+                    addMeasurement(measurementType, t, v)
             elif barometerMeasurement is not None:
-                barometer["v"].append(barometerMeasurement.get("pressureHectopascals", 0))
-                if len(barometer["t"]) > 0:
-                    diff = t - barometer["t"][-1]
-                    barometer["td"].append(diff)
-                barometer["t"].append(t)
+                addMeasurement("barometer", t, barometerMeasurement["pressureHectopascals"])
             elif frames is not None:
                 for f in frames:
                     if f.get("missingBitmap", False): continue
+                    cameras = data['cameras']
                     ind = f["cameraInd"]
                     if cameras.get(ind) is None:
                         cameras[ind] = {"td": [], "t": [] }
@@ -129,18 +122,18 @@ def generateReport(args):
                         cameras[ind]["features"].append(len(f["features"]))
                     cameras[ind]["t"].append(t)
             elif metrics is not None and 'cpu' in metrics:
-                cpu["t"].append(t)
-                cpu["v"].append(metrics['cpu'].get('systemTotalUsagePercent', 0))
+                data["cpu"]["t"].append(t)
+                data["cpu"]["v"].append(metrics['cpu'].get('systemTotalUsagePercent', 0))
 
         if nSkipped > 0:
             print('skipped %d lines' % nSkipped)
 
-    sensors.camera(cameras, output)
-    sensors.accelerometer(accelerometer, output)
-    sensors.gyroscope(gyroscope, output)
-    sensors.magnetometer(magnetometer, output)
-    sensors.barometer(barometer, output)
-    sensors.cpu(cpu, output)
+    sensors.camera(data, output)
+    sensors.accelerometer(data, output)
+    sensors.gyroscope(data, output)
+    sensors.magnetometer(data, output)
+    sensors.barometer(data, output)
+    sensors.cpu(data, output)
 
     if args.output_json:
         with open(args.output_json, "w") as f:

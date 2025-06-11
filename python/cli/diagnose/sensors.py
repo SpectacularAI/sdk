@@ -179,7 +179,9 @@ def plotFrame(
     return base64(fig)
 
 def camera(data, output):
+    data = data["cameras"]
     output["cameras"] = []
+
     for ind in data.keys():
         camera = data[ind]
         timestamps = np.array(camera["t"])
@@ -220,9 +222,10 @@ def camera(data, output):
         output["cameras"].append(cameraOutput)
 
 def accelerometer(data, output):
+    data = data["accelerometer"]
     timestamps = np.array(data["t"])
     deltaTimes = np.array(data["td"])
-    signal = list(zip(data['x'], data['y'], data['z']))
+    signal = data['v']
 
     if len(timestamps) == 0: return
 
@@ -256,9 +259,10 @@ def accelerometer(data, output):
         output["passed"] = False
 
 def gyroscope(data, output):
+    data = data["gyroscope"]
     timestamps = np.array(data["t"])
     deltaTimes = np.array(data["td"])
-    signal = list(zip(data['x'], data['y'], data['z']))
+    signal = data['v']
 
     if len(timestamps) == 0: return
 
@@ -274,7 +278,7 @@ def gyroscope(data, output):
                 timestamps,
                 signal,
                 "Gyroscope signal",
-                yLabel="rad/s",
+                yLabel="Angular velocity (rad/s)",
                 legend=['x', 'y', 'z'],
                 **SIGNAL_PLOT_KWARGS),
             plotFrame(
@@ -292,9 +296,10 @@ def gyroscope(data, output):
         output["passed"] = False
 
 def magnetometer(data, output):
+    data = data["magnetometer"]
     timestamps = np.array(data["t"])
     deltaTimes = np.array(data["td"])
-    signal = list(zip(data['x'], data['y'], data['z']))
+    signal = data['v']
 
     if len(timestamps) == 0: return
 
@@ -328,6 +333,7 @@ def magnetometer(data, output):
         output["passed"] = False
 
 def barometer(data, output):
+    data = data["barometer"]
     timestamps = np.array(data["t"])
     deltaTimes = np.array(data["td"])
     signal = data['v']
@@ -363,7 +369,12 @@ def barometer(data, output):
         output["passed"] = False
 
 def cpu(data, output):
-    if len(data["t"]) > 0:
-        output["cpu"] = {
-            "image": plotFrame(data["t"], data["v"], "CPU system load (%)", ymin=0, ymax=100)
-        }
+    data = data["cpu"]
+    timestamps = np.array(data["t"])
+    values = data["v"]
+
+    if len(timestamps) == 0: return
+
+    output["cpu"] = {
+        "image": plotFrame(timestamps, values, "CPU system load (%)", ymin=0, ymax=100)
+    }
