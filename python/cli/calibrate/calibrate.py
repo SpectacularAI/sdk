@@ -14,6 +14,9 @@ def define_subparser(subparsers):
     sub = subparsers.add_parser('calibrate', help=__doc__.strip())
     sub.set_defaults(func=call_calibrate)
     from spectacularAI.calibration import define_args as define_args_calibration
-    from .report import define_args as define_args_report
-    define_args_calibration(sub)
-    define_args_report(sub)
+    try:
+        from .report import define_args as define_args_report
+        define_args_calibration(sub)
+        define_args_report(sub)
+    except:
+        pass
