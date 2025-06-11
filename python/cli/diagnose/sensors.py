@@ -112,7 +112,7 @@ class Status:
 
         return deltaTimePlotColors
 
-    def analyzeSignal(self, signal, maxDuplicateRatio=0.001):
+    def analyzeSignal(self, signal, maxDuplicateRatio=0.01):
         prev = None
         total = np.shape(signal)[0]
 
@@ -272,13 +272,49 @@ def gyroscope(data, output):
                 timestamps,
                 signal,
                 "Gyroscope signal",
-                yLabel="Gyroscope (rad/s)",
+                yLabel="rad/s",
                 legend=['x', 'y', 'z'],
                 **SIGNAL_PLOT_KWARGS),
             plotFrame(
                 timestamps[1:],
                 deltaTimes * SECONDS_TO_MILLISECONDS,
                 "Gyroscope time diff (ms)",
+                color=deltaTimePlotColors,
+                s=1,
+                **DELTA_TIME_PLOT_KWARGS)
+        ],
+        "frequency": 1.0 / np.median(deltaTimes),
+        "count": len(timestamps)
+    }
+    if status.diagnosis == DiagnosisLevel.ERROR:
+        output["passed"] = False
+
+def magnetometer(data, output):
+    timestamps = np.array(data["t"])
+    deltaTimes = np.array(data["td"])
+    signal = list(zip(data['x'], data['y'], data['z']))
+
+    if len(timestamps) == 0: return
+
+    status = Status()
+    deltaTimePlotColors = status.analyzeTimestamps(deltaTimes, IMU_MIN_FREQUENCY_HZ)
+    status.analyzeSignal(signal)
+
+    output["magnetometer"] = {
+        "diagnosis": status.diagnosis.toString(),
+        "issues": status.issues,
+        "images": [
+            plotFrame(
+                timestamps,
+                signal,
+                "Magnetometer signal",
+                yLabel="Microteslas (μT)",
+                legend=['x', 'y', 'z'],
+                **SIGNAL_PLOT_KWARGS),
+            plotFrame(
+                timestamps[1:],
+                deltaTimes * SECONDS_TO_MILLISECONDS,
+                "Magnetometer time diff (ms)",
                 color=deltaTimePlotColors,
                 s=1,
                 **DELTA_TIME_PLOT_KWARGS)

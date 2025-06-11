@@ -6,7 +6,7 @@ import json
 import pathlib
 import sys
 
-from .html import generateHtml
+from html1 import generateHtml
 import sensors
 
 def define_args(parser):
@@ -43,8 +43,11 @@ def generateReport(args):
     else:
         plotFigures = True
 
+    SENSOR_NAMES = ["accelerometer", "gyroscope", "magnetometer"]
+
     accelerometer = {"x": [], "y": [], "z": [], "t": [], "td": []}
     gyroscope = {"x": [], "y": [], "z": [], "t": [], "td": []}
+    magnetometer = {"x": [], "y": [], "z": [], "t": [], "td": []}
     cpu = {"v": [], "t": []}
     cameras = {}
 
@@ -94,6 +97,12 @@ def generateReport(args):
                         diff = t - gyroscope["t"][-1]
                         gyroscope["td"].append(diff)
                     gyroscope["t"].append(t)
+                elif measurementType == "magnetometer":
+                    for i, c in enumerate('xyz'): magnetometer[c].append(sensor["values"][i])
+                    if len(magnetometer["t"]) > 0:
+                        diff = t - magnetometer["t"][-1]
+                        magnetometer["td"].append(diff)
+                    magnetometer["t"].append(t)
             elif frames is not None:
                 for f in frames:
                     if f.get("missingBitmap", False): continue
@@ -119,6 +128,7 @@ def generateReport(args):
     sensors.camera(cameras, output)
     sensors.accelerometer(accelerometer, output)
     sensors.gyroscope(gyroscope, output)
+    sensors.magnetometer(magnetometer, output)
     sensors.cpu(cpu, output)
 
     if args.output_json:
