@@ -12,14 +12,16 @@ MAGNETOMETER_MIN_FREQUENCY_HZ = 1.0
 MAGNETOMETER_MAX_FREQUENCY_HZ = 1e3
 BAROMETER_MIN_FREQUENCY_HZ = 1.0
 BAROMETER_MAX_FREQUENCY_HZ = 1e3
+GPS_MIN_FREQUENCY_HZ = None
+GPS_MAX_FREQUENCY_HZ = 100.0
 
 DELTA_TIME_PLOT_KWARGS = {
     'plottype': 'scatter',
-    'xlabel': "Time (s)",
+    'xLabel': "Time (s)",
     'yLabel':"Time diff (ms)"
 }
 SIGNAL_PLOT_KWARGS = {
-    'xlabel': "Time (s)",
+    'xLabel': "Time (s)",
     'style': '.-',
     'linewidth': 0.1,
     'markersize': 1
@@ -57,7 +59,8 @@ class Status:
             deltaTimes,
             imuTimestamps,
             minFrequencyHz,
-            maxFrequencyHz):
+            maxFrequencyHz,
+            allowDataGaps=False):
         WARNING_RELATIVE_DELTA_TIME = 0.1
         ERROR_DELTA_TIME_SECONDS = 0.5
 
@@ -104,7 +107,7 @@ class Status:
             self.issues.append(f"Found {duplicateTimestamps} ({toPercent(duplicateTimestamps)}) duplicate timestamps.")
             self.__updateDiagnosis(DiagnosisLevel.ERROR)
 
-        if dataGaps > 0:
+        if dataGaps > 0 and not allowDataGaps:
             self.issues.append(f"Found {dataGaps} ({toPercent(dataGaps)}) pauses longer than {thresholdDataGap:.2f}seconds.")
             self.__updateDiagnosis(DiagnosisLevel.ERROR)
 
@@ -118,11 +121,11 @@ class Status:
                 self.__updateDiagnosis(DiagnosisLevel.WARNING)
 
         frequency = 1.0 / medianDeltaTime
-        if frequency < minFrequencyHz:
+        if minFrequencyHz is not None and frequency < minFrequencyHz:
             self.issues.append(f"Minimum required frequency is {minFrequencyHz:.1f}Hz but data is {frequency:.1f}Hz")
             self.__updateDiagnosis(DiagnosisLevel.ERROR)
 
-        if frequency > maxFrequencyHz:
+        if maxFrequencyHz is not None and frequency > maxFrequencyHz:
             self.issues.append(f"Maximum allowed frequency is {maxFrequencyHz:.1f}Hz but data is {frequency:.1f}Hz")
             self.__updateDiagnosis(DiagnosisLevel.ERROR)
 
@@ -177,7 +180,7 @@ def plotFrame(
         title,
         style=None,
         plottype='plot',
-        xlabel=None,
+        xLabel=None,
         yLabel=None,
         legend=None,
         ymin=None,
@@ -200,7 +203,7 @@ def plotFrame(
         p(x, ys, **kwargs)
 
     ax.margins(x=0)
-    if xlabel is not None: ax.set_xlabel(xlabel)
+    if xLabel is not None: ax.set_xlabel(xLabel)
     if yLabel is not None: ax.set_ylabel(yLabel)
     if legend is not None: ax.legend(legend, fontsize='large', markerscale=10)
     fig.tight_layout()
@@ -439,6 +442,55 @@ def diagnoseBarometer(data, output):
                 timestamps[1:],
                 deltaTimes * SECONDS_TO_MILLISECONDS,
                 "Barometer time diff (ms)",
+                color=deltaTimePlotColors,
+                s=1,
+                **DELTA_TIME_PLOT_KWARGS)
+        ]
+    }
+    if status.diagnosis == DiagnosisLevel.ERROR:
+        output["passed"] = False
+
+def diagnoseGps(data, output):
+    sensor = data["gps"]
+    timestamps = np.array(sensor["t"])
+    deltaTimes = np.array(sensor["td"])
+    signal = sensor['v']
+
+    if len(timestamps) == 0: return
+
+    status = Status()
+    deltaTimePlotColors = status.analyzeTimestamps(
+        timestamps,
+        deltaTimes,
+        getImuTimestamps(data),
+        GPS_MIN_FREQUENCY_HZ,
+        GPS_MAX_FREQUENCY_HZ,
+        allowDataGaps=True)
+    status.analyzeSignal(signal)
+
+    output["gps"] = {
+        "diagnosis": status.diagnosis.toString(),
+        "issues": status.issues,
+        "frequency": 1.0 / np.median(deltaTimes),
+        "count": len(timestamps),
+        "images": [
+            plotFrame(
+                np.array(signal)[:, 0],
+                np.array(signal)[:, 1],
+                "GPS position (ENU)",
+                xLabel="x (m)",
+                yLabel="y (m)",
+                style='-'),
+            plotFrame(
+                timestamps,
+                np.array(signal)[:, 2],
+                "GPS altitude (WGS-84)",
+                yLabel="Altitude (m)",
+                **SIGNAL_PLOT_KWARGS),
+            plotFrame(
+                timestamps[1:],
+                deltaTimes * SECONDS_TO_MILLISECONDS,
+                "GPS time diff (ms)",
                 color=deltaTimePlotColors,
                 s=1,
                 **DELTA_TIME_PLOT_KWARGS)

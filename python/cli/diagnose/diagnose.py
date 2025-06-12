@@ -8,6 +8,7 @@ import sys
 
 from .html import generateHtml
 from .sensors import *
+from .gnss import GnssConverter
 
 def define_args(parser):
     parser.add_argument("dataset_path", type=pathlib.Path, help="Path to dataset")
@@ -48,6 +49,7 @@ def generateReport(args):
         'gyroscope': {"v": [], "t": [], "td": []},
         'magnetometer': {"v": [], "t": [], "td": []},
         'barometer': {"v": [], "t": [], "td": []},
+        'gps': {"v": [], "t": [], "td": []},
         'cpu': {"v": [], "t": []},
         'cameras': {}
     }
@@ -63,6 +65,7 @@ def generateReport(args):
 
     startTime = None
     timeOffset = 0
+    gnssConverter = GnssConverter()
 
     with open(jsonlFile) as f:
         nSkipped = 0
@@ -74,7 +77,8 @@ def generateReport(args):
                 continue
             time = measurement.get("time")
             sensor = measurement.get("sensor")
-            barometerMeasurement = measurement.get("barometer")
+            barometer = measurement.get("barometer")
+            gps = measurement.get("gps")
             frames = measurement.get("frames")
             metrics = measurement.get("systemMetrics")
             if frames is None and 'frame' in measurement:
@@ -86,7 +90,8 @@ def generateReport(args):
             if (sensor is None
                 and frames is None
                 and metrics is None
-                and barometerMeasurement is None): continue
+                and barometer is None
+                and gps is None): continue
 
             if startTime is None:
                 startTime = time
@@ -103,8 +108,11 @@ def generateReport(args):
                 if measurementType in ["accelerometer", "gyroscope", "magnetometer"]:
                     v = [sensor["values"][i] for i in range(3)]
                     addMeasurement(measurementType, t, v)
-            elif barometerMeasurement is not None:
-                addMeasurement("barometer", t, barometerMeasurement["pressureHectopascals"])
+            elif barometer is not None:
+                addMeasurement("barometer", t, barometer["pressureHectopascals"])
+            elif gps is not None:
+                enu = gnssConverter.enu(gps["latitude"], gps["longitude"], gps["altitude"])
+                addMeasurement("gps", t, [enu["x"], enu["y"], gps["altitude"]])
             elif frames is not None:
                 for f in frames:
                     if f.get("missingBitmap", False): continue
@@ -133,6 +141,7 @@ def generateReport(args):
     diagnoseGyroscope(data, output)
     diagnoseMagnetometer(data, output)
     diagnoseBarometer(data, output)
+    diagnoseGps(data, output)
     diagnoseCpu(data, output)
 
     if args.output_json:
