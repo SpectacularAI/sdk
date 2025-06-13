@@ -15,17 +15,60 @@ BAROMETER_MAX_FREQUENCY_HZ = 1e3
 GPS_MIN_FREQUENCY_HZ = None
 GPS_MAX_FREQUENCY_HZ = 100.0
 
-DELTA_TIME_PLOT_KWARGS = {
-    'plottype': 'scatter',
-    'xLabel': "Time (s)",
-    'yLabel':"Time diff (ms)"
-}
 SIGNAL_PLOT_KWARGS = {
     'xLabel': "Time (s)",
-    'style': '.-',
-    'linewidth': 0.1,
-    'markersize': 1
+    'style': '-',
+    'linewidth': 1.0
 }
+
+def base64(fig):
+    import io
+    import base64
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    buf.seek(0)
+    return base64.b64encode(buf.getvalue()).decode('utf-8')
+
+def plotFrame(
+        x,
+        ys,
+        title,
+        style=None,
+        plottype='plot',
+        xLabel=None,
+        yLabel=None,
+        legend=None,
+        ymin=None,
+        ymax=None,
+        xMargin=0,
+        yMargin=0,
+        plot=False,
+        **kwargs):
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(8, 6))  # Fixed image size
+
+    ax.set_title(title)
+    p = getattr(ax, plottype)
+
+    if ymin is not None and ymax is not None:
+        ax.set_ylim(ymin, ymax)
+
+    if style is not None:
+        p(x, ys, style, **kwargs)
+    else:
+        p(x, ys, **kwargs)
+
+    ax.margins(x=xMargin, y=yMargin)
+    if xLabel is not None: ax.set_xlabel(xLabel)
+    if yLabel is not None: ax.set_ylabel(yLabel)
+    if legend is not None:
+        leg = ax.legend(legend, fontsize='large', markerscale=10)
+        for line in leg.get_lines(): line.set_linewidth(2)
+    fig.tight_layout()
+    if plot: plt.show()
+
+    return base64(fig)
 
 class DiagnosisLevel(Enum):
     OK = 0
@@ -49,6 +92,7 @@ class Status:
     def __init__(self):
         self.diagnosis = DiagnosisLevel.OK # Overall diagnosis of the data
         self.issues = [] # Human readable list of issues found during analysis
+        self.images = [] # Plots that were created during analysis
 
     def __updateDiagnosis(self, newDiagnosis):
         self.diagnosis = max(self.diagnosis, newDiagnosis)
@@ -60,6 +104,7 @@ class Status:
             imuTimestamps,
             minFrequencyHz,
             maxFrequencyHz,
+            plotArgs,
             allowDataGaps=False):
         WARNING_RELATIVE_DELTA_TIME = 0.1
         ERROR_DELTA_TIME_SECONDS = 0.5
@@ -98,6 +143,15 @@ class Status:
                 deltaTimePlotColors.append(COLOR_WARNING)
             else:
                 deltaTimePlotColors.append(COLOR_OK)
+
+        self.images.append(plotFrame(
+                timestamps[1:],
+                deltaTimes * SECONDS_TO_MILLISECONDS,
+                color=deltaTimePlotColors,
+                plottype="scatter",
+                xLabel="Time (s)",
+                yLabel="Time diff (ms)",
+                **plotArgs))
 
         if samplesInWrongOrder > 0:
             self.issues.append(f"Found {samplesInWrongOrder} ({toPercent(samplesInWrongOrder)}) timestamps that are in non-chronological order.")
@@ -145,9 +199,10 @@ class Status:
                     "timestamps that don't overlap with IMU")
                 self.__updateDiagnosis(DiagnosisLevel.WARNING)
 
-        return deltaTimePlotColors
-
-    def analyzeSignal(self, signal, maxDuplicateRatio=0.01):
+    def analyzeSignalDuplicateValues(
+            self,
+            signal,
+            maxDuplicateRatio=0.01):
         prev = None
         total = np.shape(signal)[0]
 
@@ -155,9 +210,10 @@ class Status:
             p = (value / total) * TO_PERCENT
             return f"{p:.1f}%"
 
+        # 1) Check for consecutive duplicate values in the signal
         duplicateSamples = 0
         for v in signal:
-            if prev is not None and v == prev:
+            if prev is not None and (v == prev).all():
                 duplicateSamples += 1
             prev = v
 
@@ -166,50 +222,92 @@ class Status:
             if maxDuplicateRatio * total < duplicateSamples:
                 self.__updateDiagnosis(DiagnosisLevel.WARNING)
 
-def base64(fig):
-    import io
-    import base64
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png')
-    buf.seek(0)
-    return base64.b64encode(buf.getvalue()).decode('utf-8')
+    def analyzeSignalNoise(
+            self,
+            signal,
+            timestamps,
+            samplingRate,
+            cutoffFrequency,
+            sensorName,
+            yLabel):
+        SNR_ERROR_THRESHOLD_DB = 0
+        WINDOW_SIZE_SECONDS = 1.0
+        count = np.shape(timestamps)[0]
+        windowSize = int(WINDOW_SIZE_SECONDS * samplingRate)
+        if windowSize <= 0: return
+        if count < windowSize: return
 
-def plotFrame(
-        x,
-        ys,
-        title,
-        style=None,
-        plottype='plot',
-        xLabel=None,
-        yLabel=None,
-        legend=None,
-        ymin=None,
-        ymax=None,
-        plot=False,
-        **kwargs):
-    import matplotlib.pyplot as plt
+        def highpass(signal, fs, cutoff, order=3):
+            from scipy.signal import butter, filtfilt
+            b, a = butter(order, cutoff / (0.5 * fs), btype='high')
+            return filtfilt(b, a, signal)
 
-    fig, ax = plt.subplots(figsize=(8, 6))  # Fixed image size
+        def signalToNoiseRatioDb(signal, noise):
+            signalPower = np.mean(signal**2)
+            noisePower = np.mean(noise**2)
+            if noisePower <= 0: return 0
+            return 10.0 * np.log10(signalPower / noisePower)
 
-    ax.set_title(title)
-    p = getattr(ax, plottype)
+        def rollingWindowSignalToNoiseRatioDb(signal, noise, windowSize):
+            if len(signal) < windowSize: return []
+            snr = np.full(len(signal) - windowSize + 1, np.nan)
+            j = 0
+            for i in range(windowSize - 1, len(signal)):
+                signalWindow = signal[i - windowSize + 1 : i + 1]
+                noiseWindow = noise[i - windowSize + 1 : i + 1]
+                snr[j] = signalToNoiseRatioDb(signalWindow, noiseWindow)
+                j += 1
+            return snr
 
-    if ymin is not None and ymax is not None:
-        ax.set_ylim(ymin, ymax)
+        # Find channel with worst SNR
+        noise = np.zeros_like(signal)
+        filtered = np.zeros_like(signal)
+        snrPerChannel = []
+        for c in range(np.shape(signal)[1]):
+            noise[:, c] = highpass(signal[:, c], samplingRate, cutoffFrequency)
+            filtered[:, c] = signal[:, c] - noise[:, c]
+            snr = signalToNoiseRatioDb(filtered[:, c], noise[:, c])
+            snrPerChannel.append(snr)
 
-    if style is not None:
-        p(x, ys, style, **kwargs)
-    else:
-        p(x, ys, **kwargs)
+        idx = np.argmin(snrPerChannel)
+        signalWithNoise = signal[:, idx]
+        noise = noise[:, idx]
+        filtered = filtered[:, idx]
+        snr = snrPerChannel[idx]
 
-    ax.margins(x=0)
-    if xLabel is not None: ax.set_xlabel(xLabel)
-    if yLabel is not None: ax.set_ylabel(yLabel)
-    if legend is not None: ax.legend(legend, fontsize='large', markerscale=10)
-    fig.tight_layout()
-    if plot: plt.show()
+        rollingWindowSnr = rollingWindowSignalToNoiseRatioDb(filtered, noise, windowSize)
 
-    return base64(fig)
+        # Pick worst of
+        # 1) SNR for entire signal
+        # 2) Median of rolling window SNR (gives more robust estimate for the SNR)
+        snr = min(snr, np.median(rollingWindowSnr))
+
+        self.images.append(plotFrame(
+            timestamps[windowSize-1:],
+            rollingWindowSnr,
+            f"{sensorName} signal to noise ratio (SNR={snr:.1f}) using {WINDOW_SIZE_SECONDS} second window",
+            xLabel="Time (s)",
+            yLabel="SNR (dB)"))
+
+        if snr < SNR_ERROR_THRESHOLD_DB:
+            self.issues.append(f"Signal to noise ratio {snr:.1f}dB is lower than the threshold {SNR_ERROR_THRESHOLD_DB:.1f}dB")
+            self.__updateDiagnosis(DiagnosisLevel.ERROR)
+
+            i0 = np.argwhere(rollingWindowSnr < SNR_ERROR_THRESHOLD_DB)[0][0]
+            i1 = min(i0 + int(5 * samplingRate), len(rollingWindowSnr)) # 5 second window
+
+            self.images.append(plotFrame(
+                timestamps[i0:i1],
+                np.column_stack([
+                    signalWithNoise[i0:i1],
+                    noise[i0:i1],
+                    filtered[i0:i1]]
+                ),
+                "First part of signal with low signal to noise ratio",
+                legend=['signal with noise', f'noise (high-pass with cutoff={cutoffFrequency}Hz)', 'signal'],
+                yLabel=yLabel,
+                **SIGNAL_PLOT_KWARGS
+            ))
 
 def getImuTimestamps(data):
     return data["accelerometer"]["t"]
@@ -226,32 +324,27 @@ def diagnoseCamera(data, output):
         if len(timestamps) == 0: continue
 
         status = Status()
-        deltaTimePlotColors = status.analyzeTimestamps(
+        status.analyzeTimestamps(
             timestamps,
             deltaTimes,
             getImuTimestamps(data),
             CAMERA_MIN_FREQUENCY_HZ,
-            CAMERA_MAX_FREQUENCY_HZ)
+            CAMERA_MAX_FREQUENCY_HZ,
+            plotArgs={
+                "title": f"Camera #{ind} frame time diff",
+                "s": 10
+            })
         cameraOutput = {
             "diagnosis": status.diagnosis.toString(),
             "issues": status.issues,
             "ind": ind,
             "frequency": 1.0 / np.median(deltaTimes),
-            "count": len(timestamps)
+            "count": len(timestamps),
+            "images": status.images
         }
 
         if status.diagnosis == DiagnosisLevel.ERROR:
             output["passed"] = False
-
-        cameraOutput["images"] = [
-            plotFrame(
-                timestamps[1:],
-                deltaTimes * SECONDS_TO_MILLISECONDS,
-                f"Camera #{ind} frame time diff",
-                color=deltaTimePlotColors,
-                s=10,
-                **DELTA_TIME_PLOT_KWARGS)
-        ]
 
         if camera.get("features"):
             cameraOutput["images"].append(plotFrame(
@@ -270,7 +363,7 @@ def diagnoseAccelerometer(data, output):
     sensor = data["accelerometer"]
     timestamps = np.array(sensor["t"])
     deltaTimes = np.array(sensor["td"])
-    signal = sensor['v']
+    signal = np.array(sensor['v'])
 
     if len(timestamps) == 0:
         # Accelerometer is required
@@ -283,18 +376,32 @@ def diagnoseAccelerometer(data, output):
         return
 
     status = Status()
-    deltaTimePlotColors = status.analyzeTimestamps(
+    status.analyzeTimestamps(
         timestamps,
         deltaTimes,
         getImuTimestamps(data),
         IMU_MIN_FREQUENCY_HZ,
-        IMU_MAX_FREQUENCY_HZ)
-    status.analyzeSignal(signal)
+        IMU_MAX_FREQUENCY_HZ,
+        plotArgs={
+            "title": "Accelerometer time diff",
+            "s": 1
+        })
+    status.analyzeSignalDuplicateValues(signal)
+
+    samplingRate = 1.0 / np.median(deltaTimes)
+    ACCELEROMETER_CUTOFF_FREQUENCY = 10
+    status.analyzeSignalNoise(
+        signal,
+        timestamps,
+        samplingRate,
+        ACCELEROMETER_CUTOFF_FREQUENCY,
+        sensorName="Accelerometer",
+        yLabel="Acceleration (m/s²)")
 
     output["accelerometer"] = {
         "diagnosis": status.diagnosis.toString(),
         "issues": status.issues,
-        "frequency": 1.0 / np.median(deltaTimes),
+        "frequency": samplingRate,
         "count": len(timestamps),
         "images": [
             plotFrame(
@@ -304,14 +411,7 @@ def diagnoseAccelerometer(data, output):
                 yLabel="Acceleration (m/s²)",
                 legend=['x', 'y', 'z'],
                 **SIGNAL_PLOT_KWARGS),
-            plotFrame(
-                timestamps[1:],
-                deltaTimes * SECONDS_TO_MILLISECONDS,
-                "Accelerometer time diff",
-                color=deltaTimePlotColors,
-                s=1,
-                **DELTA_TIME_PLOT_KWARGS)
-        ]
+        ] + status.images
     }
     if status.diagnosis == DiagnosisLevel.ERROR:
         output["passed"] = False
@@ -320,7 +420,7 @@ def diagnoseGyroscope(data, output):
     sensor = data["gyroscope"]
     timestamps = np.array(sensor["t"])
     deltaTimes = np.array(sensor["td"])
-    signal = sensor['v']
+    signal = np.array(sensor['v'])
 
     if len(timestamps) == 0:
         # Gyroscope is required
@@ -334,13 +434,17 @@ def diagnoseGyroscope(data, output):
         return
 
     status = Status()
-    deltaTimePlotColors = status.analyzeTimestamps(
+    status.analyzeTimestamps(
         timestamps,
         deltaTimes,
         getImuTimestamps(data),
         IMU_MIN_FREQUENCY_HZ,
-        IMU_MAX_FREQUENCY_HZ)
-    status.analyzeSignal(signal)
+        IMU_MAX_FREQUENCY_HZ,
+        plotArgs={
+            "title": "Gyroscope time diff",
+            "s": 1
+        })
+    status.analyzeSignalDuplicateValues(signal)
 
     output["gyroscope"] = {
         "diagnosis": status.diagnosis.toString(),
@@ -354,15 +458,8 @@ def diagnoseGyroscope(data, output):
                 "Gyroscope signal",
                 yLabel="Angular velocity (rad/s)",
                 legend=['x', 'y', 'z'],
-                **SIGNAL_PLOT_KWARGS),
-            plotFrame(
-                timestamps[1:],
-                deltaTimes * SECONDS_TO_MILLISECONDS,
-                "Gyroscope time diff (ms)",
-                color=deltaTimePlotColors,
-                s=1,
-                **DELTA_TIME_PLOT_KWARGS)
-        ]
+                **SIGNAL_PLOT_KWARGS)
+        ] + status.images
     }
     if status.diagnosis == DiagnosisLevel.ERROR:
         output["passed"] = False
@@ -371,18 +468,22 @@ def diagnoseMagnetometer(data, output):
     sensor = data["magnetometer"]
     timestamps = np.array(sensor["t"])
     deltaTimes = np.array(sensor["td"])
-    signal = sensor['v']
+    signal = np.array(sensor['v'])
 
     if len(timestamps) == 0: return
 
     status = Status()
-    deltaTimePlotColors = status.analyzeTimestamps(
+    status.analyzeTimestamps(
         timestamps,
         deltaTimes,
         getImuTimestamps(data),
         MAGNETOMETER_MIN_FREQUENCY_HZ,
-        MAGNETOMETER_MAX_FREQUENCY_HZ)
-    status.analyzeSignal(signal)
+        MAGNETOMETER_MAX_FREQUENCY_HZ,
+        plotArgs={
+            "title": "Magnetometer time diff",
+            "s": 1
+        })
+    status.analyzeSignalDuplicateValues(signal)
 
     output["magnetometer"] = {
         "diagnosis": status.diagnosis.toString(),
@@ -396,15 +497,8 @@ def diagnoseMagnetometer(data, output):
                 "Magnetometer signal",
                 yLabel="Microteslas (μT)",
                 legend=['x', 'y', 'z'],
-                **SIGNAL_PLOT_KWARGS),
-            plotFrame(
-                timestamps[1:],
-                deltaTimes * SECONDS_TO_MILLISECONDS,
-                "Magnetometer time diff (ms)",
-                color=deltaTimePlotColors,
-                s=1,
-                **DELTA_TIME_PLOT_KWARGS)
-        ]
+                **SIGNAL_PLOT_KWARGS)
+        ] + status.images
     }
     if status.diagnosis == DiagnosisLevel.ERROR:
         output["passed"] = False
@@ -413,18 +507,22 @@ def diagnoseBarometer(data, output):
     sensor = data["barometer"]
     timestamps = np.array(sensor["t"])
     deltaTimes = np.array(sensor["td"])
-    signal = sensor['v']
+    signal = np.array(sensor['v'])
 
     if len(timestamps) == 0: return
 
     status = Status()
-    deltaTimePlotColors = status.analyzeTimestamps(
+    status.analyzeTimestamps(
         timestamps,
         deltaTimes,
         getImuTimestamps(data),
         BAROMETER_MIN_FREQUENCY_HZ,
-        BAROMETER_MAX_FREQUENCY_HZ)
-    status.analyzeSignal(signal)
+        BAROMETER_MAX_FREQUENCY_HZ,
+        plotArgs={
+            "title": "Barometer time diff",
+            "s": 1
+        })
+    status.analyzeSignalDuplicateValues(signal)
 
     output["barometer"] = {
         "diagnosis": status.diagnosis.toString(),
@@ -437,15 +535,8 @@ def diagnoseBarometer(data, output):
                 signal,
                 "Barometer signal",
                 yLabel="Pressure (hPa)",
-                **SIGNAL_PLOT_KWARGS),
-            plotFrame(
-                timestamps[1:],
-                deltaTimes * SECONDS_TO_MILLISECONDS,
-                "Barometer time diff (ms)",
-                color=deltaTimePlotColors,
-                s=1,
-                **DELTA_TIME_PLOT_KWARGS)
-        ]
+                **SIGNAL_PLOT_KWARGS)
+        ] + status.images
     }
     if status.diagnosis == DiagnosisLevel.ERROR:
         output["passed"] = False
@@ -454,19 +545,23 @@ def diagnoseGps(data, output):
     sensor = data["gps"]
     timestamps = np.array(sensor["t"])
     deltaTimes = np.array(sensor["td"])
-    signal = sensor['v']
+    signal = np.array(sensor['v'])
 
     if len(timestamps) == 0: return
 
     status = Status()
-    deltaTimePlotColors = status.analyzeTimestamps(
+    status.analyzeTimestamps(
         timestamps,
         deltaTimes,
         getImuTimestamps(data),
         GPS_MIN_FREQUENCY_HZ,
         GPS_MAX_FREQUENCY_HZ,
+        plotArgs={
+            "title": "GPS time diff",
+            "s": 1
+        },
         allowDataGaps=True)
-    status.analyzeSignal(signal)
+    status.analyzeSignalDuplicateValues(signal)
 
     output["gps"] = {
         "diagnosis": status.diagnosis.toString(),
@@ -475,26 +570,21 @@ def diagnoseGps(data, output):
         "count": len(timestamps),
         "images": [
             plotFrame(
-                np.array(signal)[:, 0],
-                np.array(signal)[:, 1],
-                "GPS position (ENU)",
-                xLabel="x (m)",
-                yLabel="y (m)",
-                style='-'),
+                signal[:, 0],
+                signal[:, 1],
+                "GPS position",
+                xLabel="ENU x (m)",
+                yLabel="ENU y (m)",
+                style='-',
+                xMargin=0.05,
+                yMargin=0.05,),
             plotFrame(
                 timestamps,
-                np.array(signal)[:, 2],
+                signal[:, 2],
                 "GPS altitude (WGS-84)",
                 yLabel="Altitude (m)",
-                **SIGNAL_PLOT_KWARGS),
-            plotFrame(
-                timestamps[1:],
-                deltaTimes * SECONDS_TO_MILLISECONDS,
-                "GPS time diff (ms)",
-                color=deltaTimePlotColors,
-                s=1,
-                **DELTA_TIME_PLOT_KWARGS)
-        ]
+                **SIGNAL_PLOT_KWARGS)
+        ] + status.images
     }
     if status.diagnosis == DiagnosisLevel.ERROR:
         output["passed"] = False
