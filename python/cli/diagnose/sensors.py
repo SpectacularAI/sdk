@@ -114,6 +114,7 @@ class Status:
         dataGaps = 0
         badDeltaTimes = 0
         total = len(deltaTimes)
+        if total == 0: return
 
         def toPercent(value):
             p = (value / total) * TO_PERCENT
@@ -312,6 +313,10 @@ class Status:
 def getImuTimestamps(data):
     return data["accelerometer"]["t"]
 
+def computeSamplingRate(deltaTimes):
+    if len(deltaTimes) == 0: return 0
+    return 1.0 / np.median(deltaTimes)
+
 def diagnoseCamera(data, output):
     sensor = data["cameras"]
     output["cameras"] = []
@@ -338,7 +343,7 @@ def diagnoseCamera(data, output):
             "diagnosis": status.diagnosis.toString(),
             "issues": status.issues,
             "ind": ind,
-            "frequency": 1.0 / np.median(deltaTimes),
+            "frequency": computeSamplingRate(deltaTimes),
             "count": len(timestamps),
             "images": status.images
         }
@@ -388,7 +393,7 @@ def diagnoseAccelerometer(data, output):
         })
     status.analyzeSignalDuplicateValues(signal)
 
-    samplingRate = 1.0 / np.median(deltaTimes)
+    samplingRate = computeSamplingRate(deltaTimes)
     ACCELEROMETER_CUTOFF_FREQUENCY = 10
     status.analyzeSignalNoise(
         signal,
@@ -449,7 +454,7 @@ def diagnoseGyroscope(data, output):
     output["gyroscope"] = {
         "diagnosis": status.diagnosis.toString(),
         "issues": status.issues,
-        "frequency": 1.0 / np.median(deltaTimes),
+        "frequency": computeSamplingRate(deltaTimes),
         "count": len(timestamps),
         "images": [
             plotFrame(
@@ -488,7 +493,7 @@ def diagnoseMagnetometer(data, output):
     output["magnetometer"] = {
         "diagnosis": status.diagnosis.toString(),
         "issues": status.issues,
-        "frequency": 1.0 / np.median(deltaTimes),
+        "frequency": computeSamplingRate(deltaTimes),
         "count": len(timestamps),
         "images": [
             plotFrame(
@@ -527,7 +532,7 @@ def diagnoseBarometer(data, output):
     output["barometer"] = {
         "diagnosis": status.diagnosis.toString(),
         "issues": status.issues,
-        "frequency": 1.0 / np.median(deltaTimes),
+        "frequency": computeSamplingRate(deltaTimes),
         "count": len(timestamps),
         "images": [
             plotFrame(
@@ -566,7 +571,7 @@ def diagnoseGps(data, output):
     output["gps"] = {
         "diagnosis": status.diagnosis.toString(),
         "issues": status.issues,
-        "frequency": 1.0 / np.median(deltaTimes),
+        "frequency": computeSamplingRate(deltaTimes),
         "count": len(timestamps),
         "images": [
             plotFrame(
@@ -575,15 +580,16 @@ def diagnoseGps(data, output):
                 "GPS position",
                 xLabel="ENU x (m)",
                 yLabel="ENU y (m)",
-                style='-',
+                style='-' if len(timestamps) > 1 else '.',
                 xMargin=0.05,
-                yMargin=0.05,),
+                yMargin=0.05),
             plotFrame(
                 timestamps,
                 signal[:, 2],
                 "GPS altitude (WGS-84)",
+                xLabel="Time (s)",
                 yLabel="Altitude (m)",
-                **SIGNAL_PLOT_KWARGS)
+                style='-' if len(timestamps) > 1 else '.')
         ] + status.images
     }
     if status.diagnosis == DiagnosisLevel.ERROR:
