@@ -119,15 +119,11 @@ def generateReport(args):
                     cameras = data['cameras']
                     ind = f["cameraInd"]
                     if cameras.get(ind) is None:
-                        cameras[ind] = {"td": [], "t": [] }
-                        if "features" in f and len(f["features"]) > 0:
-                            cameras[ind]["features"] = []
+                        cameras[ind] = {"td": [], "t": [], "features": []}
                     else:
                         diff = t - cameras[ind]["t"][-1]
                         cameras[ind]["td"].append(diff)
-
-                    if "features" in f and len(f["features"]) > 0:
-                        cameras[ind]["features"].append(len(f["features"]))
+                    if "features" in f: cameras[ind]["features"].append(len(f["features"]))
                     cameras[ind]["t"].append(t)
             elif metrics is not None and 'cpu' in metrics:
                 data["cpu"]["t"].append(t)
