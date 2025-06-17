@@ -38,11 +38,9 @@ def generateReport(args):
         'dataset_path': str(jsonlFile.parent)
     }
 
-    # Plot figures if output isn't specified
-    if args.output_html or args.output_json:
-        plotFigures = False
-    else:
-        plotFigures = True
+    if not args.output_html and not args.output_json:
+        print("Either --output_html or --output_json is required")
+        return
 
     data = {
         'accelerometer': {"v": [], "t": [], "td": []},
@@ -98,6 +96,7 @@ def generateReport(args):
                 if args.zero:
                     timeOffset = startTime
 
+
             if (args.skip is not None and time - startTime < args.skip) or (args.max is not None and time - startTime > args.max):
                 nSkipped += 1
                 continue
@@ -129,8 +128,7 @@ def generateReport(args):
                 data["cpu"]["t"].append(t)
                 data["cpu"]["v"].append(metrics['cpu'].get('systemTotalUsagePercent', 0))
 
-        if nSkipped > 0:
-            print('skipped %d lines' % nSkipped)
+        if nSkipped > 0: print(f'Skipped {nSkipped} lines')
 
     diagnoseCamera(data, output)
     diagnoseAccelerometer(data, output)
