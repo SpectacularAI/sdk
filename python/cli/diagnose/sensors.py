@@ -46,7 +46,7 @@ def plotFrame(
         **kwargs):
     import matplotlib.pyplot as plt
 
-    fig, ax = plt.subplots(figsize=(8, 6))  # Fixed image size
+    fig, ax = plt.subplots(figsize=(8, 6))
 
     ax.set_title(title)
     p = getattr(ax, plottype)
@@ -229,86 +229,68 @@ class Status:
             timestamps,
             samplingRate,
             cutoffFrequency,
+            noiseThreshold,
             sensorName,
             yLabel):
-        SNR_ERROR_THRESHOLD_DB = 0
         WINDOW_SIZE_SECONDS = 1.0
         count = np.shape(timestamps)[0]
         windowSize = int(WINDOW_SIZE_SECONDS * samplingRate)
         if windowSize <= 0: return
         if count < windowSize: return
+        if cutoffFrequency >= 2.0 * samplingRate: return
 
         def highpass(signal, fs, cutoff, order=3):
             from scipy.signal import butter, filtfilt
             b, a = butter(order, cutoff / (0.5 * fs), btype='high')
             return filtfilt(b, a, signal)
 
-        def signalToNoiseRatioDb(signal, noise):
-            signalPower = np.mean(signal**2)
-            noisePower = np.mean(noise**2)
-            if noisePower <= 0: return 0
-            return 10.0 * np.log10(signalPower / noisePower)
-
-        def rollingWindowSignalToNoiseRatioDb(signal, noise, windowSize):
-            if len(signal) < windowSize: return []
-            snr = np.full(len(signal) - windowSize + 1, np.nan)
-            j = 0
-            for i in range(windowSize - 1, len(signal)):
-                signalWindow = signal[i - windowSize + 1 : i + 1]
-                noiseWindow = noise[i - windowSize + 1 : i + 1]
-                snr[j] = signalToNoiseRatioDb(signalWindow, noiseWindow)
-                j += 1
-            return snr
-
-        # Find channel with worst SNR
         noise = np.zeros_like(signal)
         filtered = np.zeros_like(signal)
-        snrPerChannel = []
         for c in range(np.shape(signal)[1]):
             noise[:, c] = highpass(signal[:, c], samplingRate, cutoffFrequency)
             filtered[:, c] = signal[:, c] - noise[:, c]
-            snr = signalToNoiseRatioDb(filtered[:, c], noise[:, c])
-            snrPerChannel.append(snr)
 
-        idx = np.argmin(snrPerChannel)
+        # Find component with highest noise
+        noiseScale = np.mean(np.abs(noise), axis=0)
+        idx = np.argmax(noiseScale)
+        noiseScale = noiseScale[idx]
         signalWithNoise = signal[:, idx]
         noise = noise[:, idx]
         filtered = filtered[:, idx]
-        snr = snrPerChannel[idx]
 
-        rollingWindowSnr = rollingWindowSignalToNoiseRatioDb(filtered, noise, windowSize)
+        # Plot example of typical noise in the signal
+        PLOT_WINDOW_SIZE_SECONDS = 1.0
+        # Find the index where the absolute noise is closest to the mean
+        i0 = np.argmin(np.abs(np.abs(noise) - noiseScale))
+        i0 = max(0, i0 - int(0.5 * PLOT_WINDOW_SIZE_SECONDS * samplingRate))
+        i1 = min(len(timestamps), i0 + int(PLOT_WINDOW_SIZE_SECONDS * samplingRate))
 
-        # Pick worst of
-        # 1) SNR for entire signal
-        # 2) Median of rolling window SNR (gives more robust estimate for the SNR)
-        snr = min(snr, np.median(rollingWindowSnr))
+        import matplotlib.pyplot as plt
+        fig, _ = plt.subplots(3, 1, figsize=(8, 6))
 
-        self.images.append(plotFrame(
-            timestamps[windowSize-1:],
-            rollingWindowSnr,
-            f"{sensorName} signal to noise ratio (SNR={snr:.1f}) using {WINDOW_SIZE_SECONDS} second window",
-            xLabel="Time (s)",
-            yLabel="SNR (dB)"))
+        plt.subplot(3, 1, 1)
+        plt.plot(timestamps[i0:i1], signalWithNoise[i0:i1], label="Original Signal")
+        plt.title("Original signal")
+        plt.ylabel(yLabel)
 
-        if snr < SNR_ERROR_THRESHOLD_DB:
-            self.issues.append(f"Signal to noise ratio {snr:.1f}dB is lower than the threshold {SNR_ERROR_THRESHOLD_DB:.1f}dB")
-            self.__updateDiagnosis(DiagnosisLevel.ERROR)
+        plt.subplot(3, 1, 2)
+        plt.plot(timestamps[i0:i1], noise[i0:i1], label="High-Pass Filtered (keeps high frequencies)")
+        plt.title("High-Pass filtered signal (i.e. noise)")
+        plt.ylabel(yLabel)
 
-            i0 = np.argwhere(rollingWindowSnr < SNR_ERROR_THRESHOLD_DB)[0][0]
-            i1 = min(i0 + int(5 * samplingRate), len(rollingWindowSnr)) # 5 second window
+        plt.subplot(3, 1, 3)
+        plt.plot(timestamps[i0:i1], filtered[i0:i1], label="Removed Low-Frequency Component")
+        plt.title("Signal without noise")
+        plt.xlabel('Time (s)')
+        plt.ylabel(yLabel)
 
-            self.images.append(plotFrame(
-                timestamps[i0:i1],
-                np.column_stack([
-                    signalWithNoise[i0:i1],
-                    noise[i0:i1],
-                    filtered[i0:i1]]
-                ),
-                "First part of signal with low signal to noise ratio",
-                legend=['signal with noise', f'noise (high-pass with cutoff={cutoffFrequency}Hz)', 'signal'],
-                yLabel=yLabel,
-                **SIGNAL_PLOT_KWARGS
-            ))
+        fig.suptitle(f"Preview of {sensorName} signal noise (mean={noiseScale:.1f}, threshold={noiseThreshold:.1f})")
+        fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+        self.images.append(base64(fig))
+
+        if noiseScale > noiseThreshold:
+            self.issues.append(f"Signal noise {noiseScale} (mean) is higher than threshold {noiseThreshold}")
+            self.__updateDiagnosis(DiagnosisLevel.WARNING)
 
 def getImuTimestamps(data):
     return data["accelerometer"]["t"]
@@ -394,12 +376,14 @@ def diagnoseAccelerometer(data, output):
     status.analyzeSignalDuplicateValues(signal)
 
     samplingRate = computeSamplingRate(deltaTimes)
-    ACCELEROMETER_CUTOFF_FREQUENCY = 10
+    ACCELEROMETER_CUTOFF_FREQUENCY_HZ = min(samplingRate / 4.0, 50.0)
+    ACCELEROMETER_NOISE_THRESHOLD_MS2 = 2.5
     status.analyzeSignalNoise(
         signal,
         timestamps,
         samplingRate,
-        ACCELEROMETER_CUTOFF_FREQUENCY,
+        ACCELEROMETER_CUTOFF_FREQUENCY_HZ,
+        ACCELEROMETER_NOISE_THRESHOLD_MS2,
         sensorName="Accelerometer",
         yLabel="Acceleration (m/s²)")
 
