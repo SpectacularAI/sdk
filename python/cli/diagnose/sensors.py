@@ -40,11 +40,12 @@ def plotFrame(
         legend=None,
         ymin=None,
         ymax=None,
-        xMargin=0,
-        yMargin=0,
+        xScale=None,
+        yScale=None,
         plot=False,
         **kwargs):
     import matplotlib.pyplot as plt
+    from matplotlib.ticker import ScalarFormatter
 
     fig, ax = plt.subplots(figsize=(8, 6))
 
@@ -59,9 +60,19 @@ def plotFrame(
     else:
         p(x, ys, **kwargs)
 
-    ax.margins(x=xMargin, y=yMargin)
     if xLabel is not None: ax.set_xlabel(xLabel)
     if yLabel is not None: ax.set_ylabel(yLabel)
+    if xScale is not None:
+        ax.set_xscale(xScale)
+        ax.xaxis.set_major_formatter(ScalarFormatter())
+        ax.xaxis.set_minor_formatter(ScalarFormatter())
+        ax.ticklabel_format(style='plain',axis='x',useOffset=False)
+    if yScale is not None:
+        ax.set_yscale(yScale)
+        ax.yaxis.set_major_formatter(ScalarFormatter())
+        ax.yaxis.set_minor_formatter(ScalarFormatter())
+        ax.ticklabel_format(style='plain',axis='y',useOffset=False)
+
     if legend is not None:
         leg = ax.legend(legend, fontsize='large', markerscale=10)
         for line in leg.get_lines(): line.set_linewidth(2)
@@ -106,8 +117,9 @@ class Status:
             maxFrequencyHz,
             plotArgs,
             allowDataGaps=False):
-        WARNING_RELATIVE_DELTA_TIME = 0.1
-        ERROR_DELTA_TIME_SECONDS = 0.5
+        WARNING_RELATIVE_DELTA_TIME = 0.2
+        DATA_GAP_RELATIVE_DELTA_TIME = 10
+        MIN_DATA_GAP_SECONDS = 0.25
 
         samplesInWrongOrder = 0
         duplicateTimestamps = 0
@@ -121,8 +133,8 @@ class Status:
             return f"{p:.1f}%"
 
         medianDeltaTime = np.median(deltaTimes)
-        thresholdDataGap = ERROR_DELTA_TIME_SECONDS + medianDeltaTime
         thresholdDeltaTimeWarning = WARNING_RELATIVE_DELTA_TIME * medianDeltaTime
+        thresholdDataGap = max(MIN_DATA_GAP_SECONDS, DATA_GAP_RELATIVE_DELTA_TIME * medianDeltaTime)
 
         COLOR_OK = (0, 1, 0) # Green
         COLOR_WARNING = (1, 0.65, 0) # Orange
@@ -152,6 +164,8 @@ class Status:
                 plottype="scatter",
                 xLabel="Time (s)",
                 yLabel="Time diff (ms)",
+                yScale="log" if dataGaps > 0 else None,
+                s=10,
                 **plotArgs))
 
         if samplesInWrongOrder > 0:
@@ -163,7 +177,7 @@ class Status:
             self.__updateDiagnosis(DiagnosisLevel.ERROR)
 
         if dataGaps > 0 and not allowDataGaps:
-            self.issues.append(f"Found {dataGaps} ({toPercent(dataGaps)}) pauses longer than {thresholdDataGap:.2f}seconds.")
+            self.issues.append(f"Found {dataGaps} ({toPercent(dataGaps)}) pauses longer than {SECONDS_TO_MILLISECONDS*thresholdDataGap:.1f}ms.")
             self.__updateDiagnosis(DiagnosisLevel.ERROR)
 
         if badDeltaTimes > 0:
@@ -171,7 +185,7 @@ class Status:
                 f"Found {badDeltaTimes} ({toPercent(badDeltaTimes)}) timestamps that differ from "
                 f"expected delta time ({medianDeltaTime*SECONDS_TO_MILLISECONDS:.1f}ms) "
                 f"more than {thresholdDeltaTimeWarning*SECONDS_TO_MILLISECONDS:.1f}ms.")
-            MAX_BAD_DELTA_TIME_RATIO = 0.01
+            MAX_BAD_DELTA_TIME_RATIO = 0.05
             if MAX_BAD_DELTA_TIME_RATIO * total < badDeltaTimes:
                 self.__updateDiagnosis(DiagnosisLevel.WARNING)
 
@@ -289,7 +303,7 @@ class Status:
         self.images.append(base64(fig))
 
         if noiseScale > noiseThreshold:
-            self.issues.append(f"Signal noise {noiseScale} (mean) is higher than threshold {noiseThreshold}")
+            self.issues.append(f"Signal noise {noiseScale:.1f} (mean) is higher than threshold {noiseThreshold}.")
             self.__updateDiagnosis(DiagnosisLevel.WARNING)
 
 def getImuTimestamps(data):
@@ -318,8 +332,7 @@ def diagnoseCamera(data, output):
             CAMERA_MIN_FREQUENCY_HZ,
             CAMERA_MAX_FREQUENCY_HZ,
             plotArgs={
-                "title": f"Camera #{ind} frame time diff",
-                "s": 10
+                "title": f"Camera #{ind} frame time diff"
             })
         cameraOutput = {
             "diagnosis": status.diagnosis.toString(),
@@ -370,8 +383,7 @@ def diagnoseAccelerometer(data, output):
         IMU_MIN_FREQUENCY_HZ,
         IMU_MAX_FREQUENCY_HZ,
         plotArgs={
-            "title": "Accelerometer time diff",
-            "s": 1
+            "title": "Accelerometer time diff"
         })
     status.analyzeSignalDuplicateValues(signal)
 
@@ -430,8 +442,7 @@ def diagnoseGyroscope(data, output):
         IMU_MIN_FREQUENCY_HZ,
         IMU_MAX_FREQUENCY_HZ,
         plotArgs={
-            "title": "Gyroscope time diff",
-            "s": 1
+            "title": "Gyroscope time diff"
         })
     status.analyzeSignalDuplicateValues(signal)
 
@@ -469,8 +480,7 @@ def diagnoseMagnetometer(data, output):
         MAGNETOMETER_MIN_FREQUENCY_HZ,
         MAGNETOMETER_MAX_FREQUENCY_HZ,
         plotArgs={
-            "title": "Magnetometer time diff",
-            "s": 1
+            "title": "Magnetometer time diff"
         })
     status.analyzeSignalDuplicateValues(signal)
 
@@ -508,8 +518,7 @@ def diagnoseBarometer(data, output):
         BAROMETER_MIN_FREQUENCY_HZ,
         BAROMETER_MAX_FREQUENCY_HZ,
         plotArgs={
-            "title": "Barometer time diff",
-            "s": 1
+            "title": "Barometer time diff"
         })
     status.analyzeSignalDuplicateValues(signal)
 
@@ -546,8 +555,7 @@ def diagnoseGps(data, output):
         GPS_MIN_FREQUENCY_HZ,
         GPS_MAX_FREQUENCY_HZ,
         plotArgs={
-            "title": "GPS time diff",
-            "s": 1
+            "title": "GPS time diff"
         },
         allowDataGaps=True)
     status.analyzeSignalDuplicateValues(signal)
@@ -564,9 +572,7 @@ def diagnoseGps(data, output):
                 "GPS position",
                 xLabel="ENU x (m)",
                 yLabel="ENU y (m)",
-                style='-' if len(timestamps) > 1 else '.',
-                xMargin=0.05,
-                yMargin=0.05),
+                style='-' if len(timestamps) > 1 else '.'),
             plotFrame(
                 timestamps,
                 signal[:, 2],
