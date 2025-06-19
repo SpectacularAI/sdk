@@ -115,21 +115,21 @@ def generateSensor(sensor, name):
     s += "</section>\n"
     return s
 
-def generateHtml(output, output_html):
+def generateHtml(output, outputHtml):
     s = HEAD
     s += h1("Dataset report")
     s += '<section>\n'
-    kv_pairs = [
+    kvPairs = [
         ('Outcome', passed(output["passed"], large=False)),
         ('Date', output['date']),
         ('Dataset', output["dataset_path"])
     ]
 
     if len(output["cameras"]) == 0:
-        kv_pairs.append(('Cameras', 'No data'))
+        kvPairs.append(('Cameras', 'No data'))
     else:
         for camera in output["cameras"]:
-            kv_pairs.append((
+            kvPairs.append((
                 'Camera #{}'.format(camera["ind"]),
                 '{:.1f}Hz {} frames'.format(
                     camera["frequency"],
@@ -138,7 +138,7 @@ def generateHtml(output, output_html):
     SENSOR_NAMES = ["accelerometer", "gyroscope", "magnetometer", "barometer", "gps"]
     for sensor in SENSOR_NAMES:
         if sensor not in output: continue
-        kv_pairs.append((
+        kvPairs.append((
             sensor.capitalize(),
             'No data' if output[sensor]["count"] == 0 else
             '{:.1f}Hz {} samples'.format(
@@ -146,7 +146,7 @@ def generateHtml(output, output_html):
                 output[sensor]["count"]
             )))
 
-    s += table(kv_pairs)
+    s += table(kvPairs)
     if not output["passed"]: s += p("One or more checks below failed.")
     s += '</section>\n'
 
@@ -167,6 +167,5 @@ def generateHtml(output, output_html):
 
     s += TAIL
 
-    with open(output_html, "w") as f:
+    with open(outputHtml, "w") as f:
         f.write(s)
-    print("Generated HTML report at:", output_html)
