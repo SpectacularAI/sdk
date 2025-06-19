@@ -168,7 +168,7 @@ class Status:
             self.issues.append(f"Found {dataGaps} ({toPercent(dataGaps)}) pauses longer than {SECONDS_TO_MILLISECONDS*thresholdDataGap:.1f}ms.")
             self.__updateDiagnosis(DiagnosisLevel.ERROR)
 
-        if badDeltaTimes > 0:
+        if badDeltaTimes > 0 and not allowDataGaps:
             self.issues.append(
                 f"Found {badDeltaTimes} ({toPercent(badDeltaTimes)}) timestamps that differ from "
                 f"expected delta time ({medianDeltaTime*SECONDS_TO_MILLISECONDS:.1f}ms) "
@@ -220,10 +220,9 @@ class Status:
                 duplicateSamples += 1
             prev = v
 
-        if duplicateSamples > 0:
+        if maxDuplicateRatio * total < duplicateSamples:
             self.issues.append(f"Found {duplicateSamples} ({toPercent(duplicateSamples)}) duplicate samples in the signal.")
-            if maxDuplicateRatio * total < duplicateSamples:
-                self.__updateDiagnosis(DiagnosisLevel.WARNING)
+            self.__updateDiagnosis(DiagnosisLevel.WARNING)
 
     def analyzeSignalNoise(
             self,
