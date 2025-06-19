@@ -133,16 +133,14 @@ def status(sensor):
         s = '<span class="error">Error</span>\n'
     else:
         raise ValueError(f"Unknown diagnosis: {diagnosis}")
-
-    if len(sensor["issues"]) > 0:
-        s += issueTable(sensor["issues"])
-
     return s
 
 def generateSensor(sensor, name):
     s = ""
     s += "<section>\n"
     s += h2("{} {}".format(name, status(sensor)))
+    if len(sensor["issues"]) > 0:
+        s += issueTable(sensor["issues"])
     for image in sensor["images"]:
         s += f'<img src="data:image/png;base64,{image}" alt="Plot">\n'
     s += "</section>\n"
