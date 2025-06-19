@@ -53,13 +53,11 @@ def plotFrame(
     if xScale is not None:
         ax.set_xscale(xScale)
         ax.xaxis.set_major_formatter(ScalarFormatter())
-        ax.xaxis.set_minor_formatter(ScalarFormatter())
         ax.ticklabel_format(style='plain',axis='x',useOffset=False)
     if yScale is not None:
         ax.set_yscale(yScale)
         ax.yaxis.set_major_formatter(ScalarFormatter())
-        ax.yaxis.set_minor_formatter(ScalarFormatter())
-        ax.ticklabel_format(style='plain',axis='y',useOffset=False)
+    ax.ticklabel_format(style='plain',axis='y',useOffset=False)
 
     if legend is not None:
         leg = ax.legend(legend, fontsize='large', markerscale=10)
@@ -93,8 +91,9 @@ class Status:
         self.issues = [] # Human readable list of issues found during analysis
         self.images = [] # Plots that were created during analysis
 
-    def __updateDiagnosis(self, newDiagnosis):
-        self.diagnosis = max(self.diagnosis, newDiagnosis)
+    def __addIssue(self, diagnosis, msg):
+        self.diagnosis = max(diagnosis, self.diagnosis)
+        self.issues.append((diagnosis, msg))
 
     def analyzeTimestamps(
             self,
@@ -108,6 +107,7 @@ class Status:
         WARNING_RELATIVE_DELTA_TIME = 0.2
         DATA_GAP_RELATIVE_DELTA_TIME = 10
         MIN_DATA_GAP_SECONDS = 0.25
+        MAX_BAD_DELTA_TIME_RATIO = 0.05
 
         samplesInWrongOrder = 0
         duplicateTimestamps = 0
@@ -157,34 +157,37 @@ class Status:
                 **plotArgs))
 
         if samplesInWrongOrder > 0:
-            self.issues.append(f"Found {samplesInWrongOrder} ({toPercent(samplesInWrongOrder)}) timestamps that are in non-chronological order.")
-            self.__updateDiagnosis(DiagnosisLevel.ERROR)
+            self.__addIssue(DiagnosisLevel.WARNING,
+                f"Found {samplesInWrongOrder} ({toPercent(samplesInWrongOrder)}) "
+                "timestamps that are in non-chronological order."
+            )
 
         if duplicateTimestamps > 0:
-            self.issues.append(f"Found {duplicateTimestamps} ({toPercent(duplicateTimestamps)}) duplicate timestamps.")
-            self.__updateDiagnosis(DiagnosisLevel.ERROR)
+            self.__addIssue(DiagnosisLevel.WARNING,
+                f"Found {duplicateTimestamps} ({toPercent(duplicateTimestamps)}) duplicate timestamps."
+            )
 
         if dataGaps > 0 and not allowDataGaps:
-            self.issues.append(f"Found {dataGaps} ({toPercent(dataGaps)}) pauses longer than {SECONDS_TO_MILLISECONDS*thresholdDataGap:.1f}ms.")
-            self.__updateDiagnosis(DiagnosisLevel.ERROR)
+            self.__addIssue(DiagnosisLevel.ERROR,
+                f"Found {dataGaps} gaps in the data longer than {SECONDS_TO_MILLISECONDS*thresholdDataGap:.1f}ms.")
 
-        if badDeltaTimes > 0 and not allowDataGaps:
-            self.issues.append(
+        if badDeltaTimes > MAX_BAD_DELTA_TIME_RATIO * total and not allowDataGaps:
+            self.__addIssue(DiagnosisLevel.WARNING,
                 f"Found {badDeltaTimes} ({toPercent(badDeltaTimes)}) timestamps that differ from "
                 f"expected delta time ({medianDeltaTime*SECONDS_TO_MILLISECONDS:.1f}ms) "
-                f"more than {thresholdDeltaTimeWarning*SECONDS_TO_MILLISECONDS:.1f}ms.")
-            MAX_BAD_DELTA_TIME_RATIO = 0.05
-            if MAX_BAD_DELTA_TIME_RATIO * total < badDeltaTimes:
-                self.__updateDiagnosis(DiagnosisLevel.WARNING)
+                f"more than {thresholdDeltaTimeWarning*SECONDS_TO_MILLISECONDS:.1f}ms."
+            )
 
         frequency = 1.0 / medianDeltaTime
         if minFrequencyHz is not None and frequency < minFrequencyHz:
-            self.issues.append(f"Minimum required frequency is {minFrequencyHz:.1f}Hz but data is {frequency:.1f}Hz")
-            self.__updateDiagnosis(DiagnosisLevel.ERROR)
+            self.__addIssue(DiagnosisLevel.ERROR,
+                f"Minimum required frequency is {minFrequencyHz:.1f}Hz but data is {frequency:.1f}Hz"
+            )
 
         if maxFrequencyHz is not None and frequency > maxFrequencyHz:
-            self.issues.append(f"Maximum allowed frequency is {maxFrequencyHz:.1f}Hz but data is {frequency:.1f}Hz")
-            self.__updateDiagnosis(DiagnosisLevel.ERROR)
+            self.__addIssue(DiagnosisLevel.ERROR,
+                f"Maximum allowed frequency is {maxFrequencyHz:.1f}Hz but data is {frequency:.1f}Hz"
+            )
 
         # Check that timestamps overlap with IMU timestamps
         if len(imuTimestamps) > 0:
@@ -198,9 +201,9 @@ class Status:
 
             MIN_OVERLAP = 0.99
             if MIN_OVERLAP * total < invalidTimestamps:
-                self.issues.append(f"Found {invalidTimestamps} ({toPercent(invalidTimestamps)}) "
+                self.__addIssue(DiagnosisLevel.WARNING,
+                    f"Found {invalidTimestamps} ({toPercent(invalidTimestamps)}) "
                     "timestamps that don't overlap with IMU")
-                self.__updateDiagnosis(DiagnosisLevel.WARNING)
 
     def analyzeSignalDuplicateValues(
             self,
@@ -221,8 +224,9 @@ class Status:
             prev = v
 
         if maxDuplicateRatio * total < duplicateSamples:
-            self.issues.append(f"Found {duplicateSamples} ({toPercent(duplicateSamples)}) duplicate samples in the signal.")
-            self.__updateDiagnosis(DiagnosisLevel.WARNING)
+            self.__addIssue(DiagnosisLevel.WARNING,
+                f"Found {duplicateSamples} ({toPercent(duplicateSamples)}) duplicate samples in the signal."
+            )
 
     def analyzeSignalNoise(
             self,
@@ -232,7 +236,7 @@ class Status:
             cutoffFrequency,
             noiseThreshold,
             sensorName,
-            yLabel):
+            measurementUnit):
         WINDOW_SIZE_SECONDS = 1.0
         count = np.shape(timestamps)[0]
         windowSize = int(WINDOW_SIZE_SECONDS * samplingRate)
@@ -272,26 +276,27 @@ class Status:
         plt.subplot(3, 1, 1)
         plt.plot(timestamps[i0:i1], signalWithNoise[i0:i1], label="Original Signal")
         plt.title("Original signal")
-        plt.ylabel(yLabel)
+        plt.ylabel(measurementUnit)
 
         plt.subplot(3, 1, 2)
         plt.plot(timestamps[i0:i1], noise[i0:i1], label="High-Pass Filtered (keeps high frequencies)")
         plt.title("High-Pass filtered signal (i.e. noise)")
-        plt.ylabel(yLabel)
+        plt.ylabel(measurementUnit)
 
         plt.subplot(3, 1, 3)
         plt.plot(timestamps[i0:i1], filtered[i0:i1], label="Removed Low-Frequency Component")
         plt.title("Signal without noise")
         plt.xlabel('Time (s)')
-        plt.ylabel(yLabel)
+        plt.ylabel(measurementUnit)
 
-        fig.suptitle(f"Preview of {sensorName} signal noise (mean={noiseScale:.1f}, threshold={noiseThreshold:.1f})")
+        fig.suptitle(f"Preview of {sensorName} signal noise (mean={noiseScale:.1f}{measurementUnit}, threshold={noiseThreshold:.1f}{measurementUnit})")
         fig.tight_layout(rect=[0, 0.03, 1, 0.95])
         self.images.append(base64(fig))
 
         if noiseScale > noiseThreshold:
-            self.issues.append(f"Signal noise {noiseScale:.1f} (mean) is higher than threshold {noiseThreshold}.")
-            self.__updateDiagnosis(DiagnosisLevel.WARNING)
+            self.__addIssue(DiagnosisLevel.WARNING,
+                f"Mean signal noise {noiseScale:.1f}{measurementUnit} is higher than threshold ({noiseThreshold}{measurementUnit})."
+            )
 
     def analyzeSignalUnit(
             self,
@@ -312,14 +317,17 @@ class Status:
         shouldPlot = False
         if minThreshold is not None and minValue < minThreshold:
             shouldPlot = True
-            self.issues.append(f"Signal magnitude has values below threshold {minThreshold:.1f}{correctUnit}. "
-                f"Please verify measurement unit is {correctUnit}.")
-            self.__updateDiagnosis(DiagnosisLevel.ERROR)
+            self.__addIssue(DiagnosisLevel.ERROR,
+                f"Signal magnitude has values below threshold ({minThreshold:.1f}{correctUnit}). "
+                f"Please verify measurement unit is {correctUnit}."
+            )
         elif maxThreshold is not None and maxValue > maxThreshold:
             shouldPlot = True
-            self.issues.append(f"Signal magnitude has values above threshold {maxThreshold:.1f}{correctUnit}. "
-                f"Please verify measurement unit is {correctUnit}.")
-            self.__updateDiagnosis(DiagnosisLevel.ERROR)
+            self.__addIssue(
+                DiagnosisLevel.ERROR,
+                f"Signal magnitude has values above threshold ({maxThreshold:.1f}{correctUnit}). "
+                f"Please verify measurement unit is {correctUnit}."
+            )
 
         if shouldPlot:
             ys = [magnitude]
@@ -348,10 +356,17 @@ class Status:
         mean = np.mean(magnitude)
 
         if mean < ACC_NORM_THRESHOLD:
-            self.issues.append(
+            self.__addIssue(DiagnosisLevel.ERROR,
                 f"Mean accelerometer magnitude {mean:.1f} is below the expected threshold ({ACC_NORM_THRESHOLD:.1f}). "
-                "This suggests the signal may be missing gravitational acceleration.")
-            self.__updateDiagnosis(DiagnosisLevel.ERROR)
+                "This suggests the signal may be missing gravitational acceleration."
+            )
+
+    def serializeIssues(self):
+        self.issues = sorted(self.issues, key=lambda x: x[0], reverse=True)
+        return [{
+            "diagnosis": i[0].toString(),
+            "message": i[1]
+        } for i in self.issues]
 
 def getImuTimestamps(data):
     return data["accelerometer"]["t"]
@@ -386,7 +401,7 @@ def diagnoseCamera(data, output):
             })
         cameraOutput = {
             "diagnosis": status.diagnosis.toString(),
-            "issues": status.issues,
+            "issues": status.serializeIssues(),
             "ind": ind,
             "frequency": computeSamplingRate(deltaTimes),
             "count": len(timestamps),
@@ -458,12 +473,12 @@ def diagnoseAccelerometer(data, output):
         cutoffThreshold,
         ACC_NOISE_THRESHOLD,
         sensorName="Accelerometer",
-        yLabel="Acceleration (m/s²)")
+        measurementUnit="m/s²")
     status.analyzeAccelerometerSignalHasGravity(signal)
 
     output["accelerometer"] = {
         "diagnosis": status.diagnosis.toString(),
-        "issues": status.issues,
+        "issues": status.serializeIssues(),
         "frequency": samplingRate,
         "count": len(timestamps),
         "images": [
@@ -520,7 +535,7 @@ def diagnoseGyroscope(data, output):
 
     output["gyroscope"] = {
         "diagnosis": status.diagnosis.toString(),
-        "issues": status.issues,
+        "issues": status.serializeIssues(),
         "frequency": computeSamplingRate(deltaTimes),
         "count": len(timestamps),
         "images": [
@@ -568,7 +583,7 @@ def diagnoseMagnetometer(data, output):
 
     output["magnetometer"] = {
         "diagnosis": status.diagnosis.toString(),
-        "issues": status.issues,
+        "issues": status.serializeIssues(),
         "frequency": computeSamplingRate(deltaTimes),
         "count": len(timestamps),
         "images": [
@@ -587,6 +602,7 @@ def diagnoseMagnetometer(data, output):
 def diagnoseBarometer(data, output):
     BARO_MIN_FREQUENCY_HZ = 1.0
     BARO_MAX_FREQUENCY_HZ = 1e3
+    BARO_DUPLICATE_VALUE_THRESHOLD = 0.2
     BARO_UNIT_CHECK_MIN_THRESHOLD = 800 # hPa
     BARO_UNIT_CHECK_MAX_THRESHOLD = 1200 # hPa
 
@@ -607,7 +623,7 @@ def diagnoseBarometer(data, output):
         plotArgs={
             "title": "Barometer time diff"
         })
-    status.analyzeSignalDuplicateValues(signal)
+    status.analyzeSignalDuplicateValues(signal, BARO_DUPLICATE_VALUE_THRESHOLD)
     status.analyzeSignalUnit(
         signal,
         timestamps,
@@ -618,7 +634,7 @@ def diagnoseBarometer(data, output):
 
     output["barometer"] = {
         "diagnosis": status.diagnosis.toString(),
-        "issues": status.issues,
+        "issues": status.serializeIssues(),
         "frequency": computeSamplingRate(deltaTimes),
         "count": len(timestamps),
         "images": [
@@ -659,7 +675,7 @@ def diagnoseGps(data, output):
 
     output["gps"] = {
         "diagnosis": status.diagnosis.toString(),
-        "issues": status.issues,
+        "issues": status.serializeIssues(),
         "frequency": computeSamplingRate(deltaTimes),
         "count": len(timestamps),
         "images": [
@@ -669,7 +685,9 @@ def diagnoseGps(data, output):
                 "GPS position",
                 xLabel="ENU x (m)",
                 yLabel="ENU y (m)",
-                style='-' if len(timestamps) > 1 else '.'),
+                style='-' if len(timestamps) > 1 else '.',
+                yScale="linear",
+                xScale="linear"),
             plotFrame(
                 timestamps,
                 signal[:, 2],

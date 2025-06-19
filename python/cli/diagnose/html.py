@@ -6,8 +6,9 @@ HEAD = """<!DOCTYPE html>
 <title>Spectacular AI dataset diagnose report</title>
 <style>
     .passed { font-weight: bold; color: #008000; }
+    .ok { font-weight: bold; color: #808080; }
     .warning { font-weight: bold; color: orange; }
-    .failed { font-weight: bold; color: red; }
+    .error { font-weight: bold; color: red; }
 
     .large-text { font-size: 22px; }
 
@@ -73,7 +74,7 @@ def passed(v, large=True):
         classes = 'passed'
         text = 'Passed'
     else:
-        classes = 'failed'
+        classes = 'error'
         text = 'FAILED'
     if large:
         classes +=" large-text"
@@ -86,19 +87,21 @@ def status(sensor):
     diagnosis = sensor["diagnosis"]
 
     if diagnosis == "ok":
-        s = '<span class="passed">OK</span>'
+        s = '<span class="passed">Passed</span>'
     elif diagnosis == "warning":
         s = '<span class="warning">Warning</span>'
     elif diagnosis == "error":
-        s = '<span class="failed">Error</span>'
+        s = '<span class="error">Error</span>'
     else:
         raise ValueError(f"Unknown diagnosis: {diagnosis}")
 
     if len(sensor["issues"]) > 0:
-        s += p('<b>Issues:</b>')
+        s += p('<b>Issues</b>')
         s += "<ul>"
-        for msg in sensor["issues"]:
-            s += li(msg)
+        for issue in sensor["issues"]:
+            style = issue["diagnosis"]
+            msg = issue["message"]
+            s += li(f'<span class="{style}">{msg}</span>')
         s += "</ul>"
 
     return s

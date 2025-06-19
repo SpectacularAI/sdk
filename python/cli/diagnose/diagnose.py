@@ -70,7 +70,7 @@ def generateReport(args):
             try:
                 measurement = json.loads(line)
             except:
-                print(f"Warning: ignoring non JSON line: {line}")
+                print(f"Warning: ignoring non JSON line: '{line}'")
                 continue
             time = measurement.get("time")
             sensor = measurement.get("sensor")
