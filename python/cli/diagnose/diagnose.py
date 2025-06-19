@@ -4,6 +4,7 @@ Visualize and diagnose common issues in data in Spectacular AI format
 
 import json
 import pathlib
+import os
 
 from .html import generateHtml
 from .sensors import *
@@ -138,12 +139,15 @@ def generateReport(args):
     diagnoseCpu(data, output)
 
     if args.output_json:
+        os.makedirs(os.path.dirname(args.output_json), exist_ok=True)
         with open(args.output_json, "w") as f:
             f.write(json.dumps(output, indent=4))
         print("Generated JSON report data at:", args.output_json)
 
     if args.output_html:
+        os.makedirs(os.path.dirname(args.output_html), exist_ok=True)
         generateHtml(output, args.output_html)
+        print("Generated HTML report at:", args.output_html)
 
 if __name__ == '__main__':
     def parse_args():
