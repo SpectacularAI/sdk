@@ -4,21 +4,9 @@ from enum import Enum
 SECONDS_TO_MILLISECONDS = 1e3
 TO_PERCENT = 100.0
 
-CAMERA_MIN_FREQUENCY_HZ = 1.0
-CAMERA_MAX_FREQUENCY_HZ = 100.0
-IMU_MIN_FREQUENCY_HZ = 50.0
-IMU_MAX_FREQUENCY_HZ = 1e4
-MAGNETOMETER_MIN_FREQUENCY_HZ = 1.0
-MAGNETOMETER_MAX_FREQUENCY_HZ = 1e3
-BAROMETER_MIN_FREQUENCY_HZ = 1.0
-BAROMETER_MAX_FREQUENCY_HZ = 1e3
-GPS_MIN_FREQUENCY_HZ = None
-GPS_MAX_FREQUENCY_HZ = 100.0
-
 SIGNAL_PLOT_KWARGS = {
     'xLabel': "Time (s)",
-    'style': '-',
-    'linewidth': 1.0
+    'style': '-'
 }
 
 def base64(fig):
@@ -306,6 +294,55 @@ class Status:
             self.issues.append(f"Signal noise {noiseScale:.1f} (mean) is higher than threshold {noiseThreshold}.")
             self.__updateDiagnosis(DiagnosisLevel.WARNING)
 
+    def analyzeSignalUnit(
+            self,
+            signal,
+            timestamps,
+            correctUnit,
+            minThreshold=None,
+            maxThreshold=None):
+
+        if signal.ndim == 1:
+            magnitude = np.abs(signal)
+        else:
+            magnitude = np.linalg.norm(signal, axis=1)
+
+        minValue = np.min(magnitude)
+        maxValue = np.max(magnitude)
+
+        shouldPlot = False
+        if minThreshold is not None and minValue < minThreshold:
+            shouldPlot = True
+            self.issues.append(f"Signal magnitude has values below threshold {minThreshold:.1f}{correctUnit}. "
+                f"Please check unit is {correctUnit}.")
+            self.__updateDiagnosis(DiagnosisLevel.ERROR)
+        elif maxThreshold is not None and maxValue > maxThreshold:
+            shouldPlot = True
+            self.issues.append(f"Signal magnitude has values above threshold {maxThreshold:.1f}{correctUnit}. "
+                f"Please check unit is {correctUnit}.")
+            self.__updateDiagnosis(DiagnosisLevel.ERROR)
+
+        if shouldPlot:
+            ys = [magnitude]
+            legend = ["Signal Magnitude"]
+
+            if minThreshold:
+                ys.append(np.full_like(magnitude, minThreshold))
+                legend.append("Minimum threshold")
+
+            if maxThreshold:
+                ys.append(np.full_like(magnitude, maxThreshold))
+                legend.append("Maximum threshold")
+
+            self.images.append(plotFrame(
+                x=timestamps,
+                ys=np.array(ys).T,
+                title="Signal magnitude and thresholds used in unit check",
+                yLabel=f"Magnitude ({correctUnit})",
+                legend=legend,
+                linewidth=2.0,
+                **SIGNAL_PLOT_KWARGS))
+
 def getImuTimestamps(data):
     return data["accelerometer"]["t"]
 
@@ -314,6 +351,9 @@ def computeSamplingRate(deltaTimes):
     return 1.0 / np.median(deltaTimes)
 
 def diagnoseCamera(data, output):
+    CAMERA_MIN_FREQUENCY_HZ = 1.0
+    CAMERA_MAX_FREQUENCY_HZ = 100.0
+
     sensor = data["cameras"]
     output["cameras"] = []
 
@@ -360,6 +400,12 @@ def diagnoseCamera(data, output):
         output["passed"] = False
 
 def diagnoseAccelerometer(data, output):
+    ACC_MIN_FREQUENCY_HZ = 50.0
+    ACC_MAX_FREQUENCY_HZ = 1e4
+    ACC_NOISE_THRESHOLD = 2.5 # m/s²
+    ACC_CUTOFF_FREQUENCY_HZ = 50.0
+    ACC_UNIT_CHECK_THRESHOLD = 200.0 # m/s²
+
     sensor = data["accelerometer"]
     timestamps = np.array(sensor["t"])
     deltaTimes = np.array(sensor["td"])
@@ -375,27 +421,31 @@ def diagnoseAccelerometer(data, output):
         }
         return
 
+    samplingRate = computeSamplingRate(deltaTimes)
+    cutoffThreshold = min(samplingRate / 4.0, ACC_CUTOFF_FREQUENCY_HZ)
+
     status = Status()
     status.analyzeTimestamps(
         timestamps,
         deltaTimes,
         getImuTimestamps(data),
-        IMU_MIN_FREQUENCY_HZ,
-        IMU_MAX_FREQUENCY_HZ,
+        ACC_MIN_FREQUENCY_HZ,
+        ACC_MAX_FREQUENCY_HZ,
         plotArgs={
             "title": "Accelerometer time diff"
         })
     status.analyzeSignalDuplicateValues(signal)
-
-    samplingRate = computeSamplingRate(deltaTimes)
-    ACCELEROMETER_CUTOFF_FREQUENCY_HZ = min(samplingRate / 4.0, 50.0)
-    ACCELEROMETER_NOISE_THRESHOLD_MS2 = 2.5
+    status.analyzeSignalUnit(
+        signal,
+        timestamps,
+        "m/s²",
+        maxThreshold=ACC_UNIT_CHECK_THRESHOLD)
     status.analyzeSignalNoise(
         signal,
         timestamps,
         samplingRate,
-        ACCELEROMETER_CUTOFF_FREQUENCY_HZ,
-        ACCELEROMETER_NOISE_THRESHOLD_MS2,
+        cutoffThreshold,
+        ACC_NOISE_THRESHOLD,
         sensorName="Accelerometer",
         yLabel="Acceleration (m/s²)")
 
@@ -418,6 +468,10 @@ def diagnoseAccelerometer(data, output):
         output["passed"] = False
 
 def diagnoseGyroscope(data, output):
+    GYRO_MIN_FREQUENCY_HZ = 50.0
+    GYRO_MAX_FREQUENCY_HZ = 1e4
+    GYRO_UNIT_CHECK_THRESHOLD = 20.0 # rad/s
+
     sensor = data["gyroscope"]
     timestamps = np.array(sensor["t"])
     deltaTimes = np.array(sensor["td"])
@@ -439,12 +493,17 @@ def diagnoseGyroscope(data, output):
         timestamps,
         deltaTimes,
         getImuTimestamps(data),
-        IMU_MIN_FREQUENCY_HZ,
-        IMU_MAX_FREQUENCY_HZ,
+        GYRO_MIN_FREQUENCY_HZ,
+        GYRO_MAX_FREQUENCY_HZ,
         plotArgs={
             "title": "Gyroscope time diff"
         })
     status.analyzeSignalDuplicateValues(signal)
+    status.analyzeSignalUnit(
+        signal,
+        timestamps,
+        "rad/s",
+        maxThreshold=GYRO_UNIT_CHECK_THRESHOLD)
 
     output["gyroscope"] = {
         "diagnosis": status.diagnosis.toString(),
@@ -465,6 +524,10 @@ def diagnoseGyroscope(data, output):
         output["passed"] = False
 
 def diagnoseMagnetometer(data, output):
+    MAGN_MIN_FREQUENCY_HZ = 1.0
+    MAGN_MAX_FREQUENCY_HZ = 1e3
+    MAGN_UNIT_CHECK_THRESHOLD = 1000 # microteslas
+
     sensor = data["magnetometer"]
     timestamps = np.array(sensor["t"])
     deltaTimes = np.array(sensor["td"])
@@ -477,12 +540,17 @@ def diagnoseMagnetometer(data, output):
         timestamps,
         deltaTimes,
         getImuTimestamps(data),
-        MAGNETOMETER_MIN_FREQUENCY_HZ,
-        MAGNETOMETER_MAX_FREQUENCY_HZ,
+        MAGN_MIN_FREQUENCY_HZ,
+        MAGN_MAX_FREQUENCY_HZ,
         plotArgs={
             "title": "Magnetometer time diff"
         })
     status.analyzeSignalDuplicateValues(signal)
+    status.analyzeSignalUnit(
+        signal,
+        timestamps,
+        "microteslas (μT)",
+        maxThreshold=MAGN_UNIT_CHECK_THRESHOLD)
 
     output["magnetometer"] = {
         "diagnosis": status.diagnosis.toString(),
@@ -494,7 +562,7 @@ def diagnoseMagnetometer(data, output):
                 timestamps,
                 signal,
                 "Magnetometer signal",
-                yLabel="Microteslas (μT)",
+                yLabel="μT",
                 legend=['x', 'y', 'z'],
                 **SIGNAL_PLOT_KWARGS)
         ] + status.images
@@ -503,6 +571,11 @@ def diagnoseMagnetometer(data, output):
         output["passed"] = False
 
 def diagnoseBarometer(data, output):
+    BARO_MIN_FREQUENCY_HZ = 1.0
+    BARO_MAX_FREQUENCY_HZ = 1e3
+    BARO_UNIT_CHECK_MIN_THRESHOLD = 800 # hPa
+    BARO_UNIT_CHECK_MAX_THRESHOLD = 1200 # hPa
+
     sensor = data["barometer"]
     timestamps = np.array(sensor["t"])
     deltaTimes = np.array(sensor["td"])
@@ -515,12 +588,18 @@ def diagnoseBarometer(data, output):
         timestamps,
         deltaTimes,
         getImuTimestamps(data),
-        BAROMETER_MIN_FREQUENCY_HZ,
-        BAROMETER_MAX_FREQUENCY_HZ,
+        BARO_MIN_FREQUENCY_HZ,
+        BARO_MAX_FREQUENCY_HZ,
         plotArgs={
             "title": "Barometer time diff"
         })
     status.analyzeSignalDuplicateValues(signal)
+    status.analyzeSignalUnit(
+        signal,
+        timestamps,
+        "hPa",
+        BARO_UNIT_CHECK_MIN_THRESHOLD,
+        BARO_UNIT_CHECK_MAX_THRESHOLD)
 
     output["barometer"] = {
         "diagnosis": status.diagnosis.toString(),
@@ -540,6 +619,9 @@ def diagnoseBarometer(data, output):
         output["passed"] = False
 
 def diagnoseGps(data, output):
+    GPS_MIN_FREQUENCY_HZ = None
+    GPS_MAX_FREQUENCY_HZ = 100.0
+
     sensor = data["gps"]
     timestamps = np.array(sensor["t"])
     deltaTimes = np.array(sensor["td"])
