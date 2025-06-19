@@ -299,9 +299,9 @@ class Status:
             signal,
             timestamps,
             correctUnit,
+            sensorName,
             minThreshold=None,
             maxThreshold=None):
-
         if signal.ndim == 1:
             magnitude = np.abs(signal)
         else:
@@ -314,12 +314,12 @@ class Status:
         if minThreshold is not None and minValue < minThreshold:
             shouldPlot = True
             self.issues.append(f"Signal magnitude has values below threshold {minThreshold:.1f}{correctUnit}. "
-                f"Please check unit is {correctUnit}.")
+                f"Please verify measurement unit is {correctUnit}.")
             self.__updateDiagnosis(DiagnosisLevel.ERROR)
         elif maxThreshold is not None and maxValue > maxThreshold:
             shouldPlot = True
             self.issues.append(f"Signal magnitude has values above threshold {maxThreshold:.1f}{correctUnit}. "
-                f"Please check unit is {correctUnit}.")
+                f"Please verify measurement unit is {correctUnit}.")
             self.__updateDiagnosis(DiagnosisLevel.ERROR)
 
         if shouldPlot:
@@ -337,11 +337,22 @@ class Status:
             self.images.append(plotFrame(
                 x=timestamps,
                 ys=np.array(ys).T,
-                title="Signal magnitude and thresholds used in unit check",
+                title=f"{sensorName} signal magnitude",
                 yLabel=f"Magnitude ({correctUnit})",
                 legend=legend,
                 linewidth=2.0,
                 **SIGNAL_PLOT_KWARGS))
+
+    def analyzeAccelerometerSignalHasGravity(self, signal):
+        ACC_NORM_THRESHOLD = 8.0 # m/s²
+        magnitude = np.linalg.norm(signal, axis=1)
+        mean = np.mean(magnitude)
+
+        if mean < ACC_NORM_THRESHOLD:
+            self.issues.append(
+                f"Mean accelerometer magnitude {mean:.1f} is below the expected threshold ({ACC_NORM_THRESHOLD:.1f}). "
+                "This suggests the signal may be missing gravitational acceleration.")
+            self.__updateDiagnosis(DiagnosisLevel.ERROR)
 
 def getImuTimestamps(data):
     return data["accelerometer"]["t"]
@@ -439,6 +450,7 @@ def diagnoseAccelerometer(data, output):
         signal,
         timestamps,
         "m/s²",
+        "Accelerometer",
         maxThreshold=ACC_UNIT_CHECK_THRESHOLD)
     status.analyzeSignalNoise(
         signal,
@@ -448,6 +460,7 @@ def diagnoseAccelerometer(data, output):
         ACC_NOISE_THRESHOLD,
         sensorName="Accelerometer",
         yLabel="Acceleration (m/s²)")
+    status.analyzeAccelerometerSignalHasGravity(signal)
 
     output["accelerometer"] = {
         "diagnosis": status.diagnosis.toString(),
@@ -503,6 +516,7 @@ def diagnoseGyroscope(data, output):
         signal,
         timestamps,
         "rad/s",
+        "Gyroscope",
         maxThreshold=GYRO_UNIT_CHECK_THRESHOLD)
 
     output["gyroscope"] = {
@@ -550,6 +564,7 @@ def diagnoseMagnetometer(data, output):
         signal,
         timestamps,
         "microteslas (μT)",
+        "Magnetometer",
         maxThreshold=MAGN_UNIT_CHECK_THRESHOLD)
 
     output["magnetometer"] = {
@@ -598,6 +613,7 @@ def diagnoseBarometer(data, output):
         signal,
         timestamps,
         "hPa",
+        "Barometer",
         BARO_UNIT_CHECK_MIN_THRESHOLD,
         BARO_UNIT_CHECK_MAX_THRESHOLD)
 
