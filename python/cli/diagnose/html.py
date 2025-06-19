@@ -51,6 +51,20 @@ HEAD = """<!DOCTYPE html>
         padding-right: 0.5cm;
         min-width: 5cm;
     }
+
+    .issue-table th, .issue-table td {
+        padding: 10px;
+        border: 1px solid #ddd;
+        text-align: left;
+    }
+
+    .issue-table thead {
+        background-color: #eaeaea;
+    }
+
+    .issue-table tbody tr:nth-child(even) {
+        background-color: #f2f2f2;
+    }
 </style>
 </head>
 <body>
@@ -61,12 +75,37 @@ TAIL = "</body>\n</html>"
 def h1(title): return f"<h1>{title}</h1>\n"
 def h2(title): return f"<h2>{title}</h2>\n"
 def p(text, size="16px"): return f'<p style="font-size:{size}; font-weight:normal">{text}</p>\n'
-def li(text, size="16px"): return f'<li style="font-size:{size}; font-weight:normal">{text}</li>\n'
-def table(pairs):
+def summaryTable(pairs):
     s = '<table class="summary-table">\n'
     for key, value in pairs:
         s += '<tr class="summary-row"><td class="key">%s</td><td class="value">%s</td>\n' % (key, value)
     s += "</table>\n"
+    return s
+def issueTable(issues):
+    s = '<table style="font-size:18px; font-weight:normal; width: 100%; table-layout: fixed;" class="issue-table">\n'
+    s += '<thead>\n<tr>\n<th style="width: 85%;">Issue</th>\n<th style="width: 15%;">Severity</th>\n</tr>\n</thead>\n'
+    s += '<tbody>\n'
+
+    for issue in issues:
+        msg = issue["message"]
+        severity = issue["diagnosis"]
+
+        if severity == "error":
+            style = 'font-weight: bold; background-color: #f06262; text-align: center;'
+            label = "Critical"
+        elif severity == "warning":
+            style = 'font-weight: bold; background-color: #fcb88b; text-align: center;'
+            label = "Warning"
+        elif severity == "ok":
+            style = 'font-weight: bold; background-color: #b0e0b0; text-align: center;'
+            label = "OK"
+        else:
+            style = 'text-align: center;'
+            label = severity.capitalize()
+
+        s += f'<tr>\n<td>{msg}</td>\n<td style="{style}">{label}</td>\n</tr>\n'
+
+    s += '</tbody>\n</table>\n'
     return s
 
 def passed(v, large=True):
@@ -87,22 +126,16 @@ def status(sensor):
     diagnosis = sensor["diagnosis"]
 
     if diagnosis == "ok":
-        s = '<span class="passed">Passed</span>'
+        s = '<span class="passed">Passed</span>\n'
     elif diagnosis == "warning":
-        s = '<span class="warning">Warning</span>'
+        s = '<span class="warning">Warning</span>\n'
     elif diagnosis == "error":
-        s = '<span class="error">Error</span>'
+        s = '<span class="error">Error</span>\n'
     else:
         raise ValueError(f"Unknown diagnosis: {diagnosis}")
 
     if len(sensor["issues"]) > 0:
-        s += p('<b>Issues</b>')
-        s += "<ul>"
-        for issue in sensor["issues"]:
-            style = issue["diagnosis"]
-            msg = issue["message"]
-            s += li(f'<span class="{style}">{msg}</span>')
-        s += "</ul>"
+        s += issueTable(sensor["issues"])
 
     return s
 
@@ -146,7 +179,7 @@ def generateHtml(output, outputHtml):
                 output[sensor]["count"]
             )))
 
-    s += table(kvPairs)
+    s += summaryTable(kvPairs)
     if not output["passed"]: s += p("One or more checks below failed.")
     s += '</section>\n'
 
