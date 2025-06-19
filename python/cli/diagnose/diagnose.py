@@ -4,7 +4,6 @@ Visualize and diagnose common issues in data in Spectacular AI format
 
 import json
 import pathlib
-import sys
 
 from .html import generateHtml
 from .sensors import *
@@ -71,7 +70,7 @@ def generateReport(args):
             try:
                 measurement = json.loads(line)
             except:
-                sys.stderr.write('ignoring non JSON line: %s' % line)
+                print(f"Warning: ignoring non JSON line: {line}")
                 continue
             time = measurement.get("time")
             sensor = measurement.get("sensor")
