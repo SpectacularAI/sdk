@@ -11,7 +11,6 @@ import json
 import os
 from pathlib import Path
 import subprocess
-import yaml
 from contextlib import contextmanager
 import shutil
 import tempfile
@@ -86,6 +85,7 @@ def maybe_extract_tar_or_zip(path):
                 print(f"Warning: Failed to delete temporary directory '{temp_dir}': {e}")
 
 def get_calibration(input_dir, stereo):
+    import yaml
     calibration = { "cameras": [] }
 
     def convert_distortion(model, coeffs):
