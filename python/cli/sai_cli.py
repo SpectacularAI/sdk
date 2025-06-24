@@ -19,8 +19,14 @@ def parse_args():
     return parser.parse_args()
 
 def main():
-    args = parse_args()
-    args.func(args)
+    try:
+        args = parse_args()
+        args.func(args)
+    except ImportError as e:
+        print(f"\n[ImportError] {e}")
+        print("Try installing dependencies with")
+        print("    pip install spectacularAI[full]\n")
+        raise
 
 if __name__ == '__main__':
     main()

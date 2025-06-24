@@ -2,13 +2,7 @@
 Post-process a session and generate a smoothed trajectory with all frames
 """
 import json
-
-try:
-    from process.process import parse_input_dir, auto_config
-except ImportError:
-    # hacky: The following mechanism allows using this both as a stand-alone
-    # script and as a subcommand in sai-cli.
-    from .process.process import parse_input_dir, auto_config
+from .process.process import parse_input_dir, auto_config
 
 def define_args(parser):
     parser.add_argument("input", help="Path to folder with session to process")
