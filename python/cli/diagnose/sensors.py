@@ -103,7 +103,8 @@ class Status:
             minFrequencyHz,
             maxFrequencyHz,
             plotArgs,
-            allowDataGaps=False):
+            allowDataGaps=False,
+            isOptionalSensor=False):
         WARNING_RELATIVE_DELTA_TIME = 0.2
         DATA_GAP_RELATIVE_DELTA_TIME = 10
         MIN_DATA_GAP_SECONDS = 0.25
@@ -168,7 +169,7 @@ class Status:
             )
 
         if dataGaps > 0 and not allowDataGaps:
-            self.__addIssue(DiagnosisLevel.ERROR,
+            self.__addIssue(DiagnosisLevel.WARNING if isOptionalSensor else DiagnosisLevel.ERROR,
                 f"Found {dataGaps} gaps in the data longer than {SECONDS_TO_MILLISECONDS*thresholdDataGap:.1f}ms.")
 
         if badDeltaTimes > MAX_BAD_DELTA_TIME_RATIO * total and not allowDataGaps:
@@ -180,12 +181,12 @@ class Status:
 
         frequency = 1.0 / medianDeltaTime
         if minFrequencyHz is not None and frequency < minFrequencyHz:
-            self.__addIssue(DiagnosisLevel.ERROR,
+            self.__addIssue(DiagnosisLevel.WARNING if isOptionalSensor else DiagnosisLevel.ERROR,
                 f"Minimum required frequency is {minFrequencyHz:.1f}Hz but data is {frequency:.1f}Hz"
             )
 
         if maxFrequencyHz is not None and frequency > maxFrequencyHz:
-            self.__addIssue(DiagnosisLevel.ERROR,
+            self.__addIssue(DiagnosisLevel.WARNING if isOptionalSensor else DiagnosisLevel.ERROR,
                 f"Maximum allowed frequency is {maxFrequencyHz:.1f}Hz but data is {frequency:.1f}Hz"
             )
 
@@ -572,7 +573,8 @@ def diagnoseMagnetometer(data, output):
         MAGN_MAX_FREQUENCY_HZ,
         plotArgs={
             "title": "Magnetometer time diff"
-        })
+        },
+        isOptionalSensor=True)
     status.analyzeSignalDuplicateValues(signal)
     status.analyzeSignalUnit(
         signal,
@@ -622,7 +624,8 @@ def diagnoseBarometer(data, output):
         BARO_MAX_FREQUENCY_HZ,
         plotArgs={
             "title": "Barometer time diff"
-        })
+        },
+        isOptionalSensor=True)
     status.analyzeSignalDuplicateValues(signal, BARO_DUPLICATE_VALUE_THRESHOLD)
     status.analyzeSignalUnit(
         signal,
@@ -670,7 +673,8 @@ def diagnoseGps(data, output):
         plotArgs={
             "title": "GPS time diff"
         },
-        allowDataGaps=True)
+        allowDataGaps=True,
+        isOptionalSensor=True)
     status.analyzeSignalDuplicateValues(signal)
 
     output["gps"] = {
