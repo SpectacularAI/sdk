@@ -234,16 +234,15 @@ class Status:
             signal,
             timestamps,
             samplingRate,
-            cutoffFrequency,
             noiseThreshold,
             sensorName,
             measurementUnit):
         WINDOW_SIZE_SECONDS = 1.0
         count = np.shape(timestamps)[0]
         windowSize = int(WINDOW_SIZE_SECONDS * samplingRate)
+        cutoffFrequency = samplingRate / 4.0
         if windowSize <= 0: return
         if count < windowSize: return
-        if cutoffFrequency >= 2.0 * samplingRate: return
 
         def highpass(signal, fs, cutoff, order=3):
             from scipy.signal import butter, filtfilt
@@ -429,7 +428,6 @@ def diagnoseAccelerometer(data, output):
     ACC_MIN_FREQUENCY_HZ = 50.0
     ACC_MAX_FREQUENCY_HZ = 1e4
     ACC_NOISE_THRESHOLD = 2.5 # m/s²
-    ACC_CUTOFF_FREQUENCY_HZ = 50.0
     ACC_UNIT_CHECK_THRESHOLD = 200.0 # m/s²
 
     sensor = data["accelerometer"]
@@ -448,7 +446,6 @@ def diagnoseAccelerometer(data, output):
         return
 
     samplingRate = computeSamplingRate(deltaTimes)
-    cutoffThreshold = min(samplingRate / 4.0, ACC_CUTOFF_FREQUENCY_HZ)
 
     status = Status()
     status.analyzeTimestamps(
@@ -471,7 +468,6 @@ def diagnoseAccelerometer(data, output):
         signal,
         timestamps,
         samplingRate,
-        cutoffThreshold,
         ACC_NOISE_THRESHOLD,
         sensorName="Accelerometer",
         measurementUnit="m/s²")
