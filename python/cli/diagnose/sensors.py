@@ -152,7 +152,7 @@ class Status:
                 plottype="scatter",
                 xLabel="Time (s)",
                 yLabel="Time diff (ms)",
-                yScale="log" if dataGaps > 0 else None,
+                yScale="symlog" if dataGaps > 0 else None,
                 s=10,
                 **plotArgs))
 
