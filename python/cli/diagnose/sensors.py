@@ -103,7 +103,8 @@ class Status:
             minFrequencyHz,
             maxFrequencyHz,
             plotArgs,
-            allowDataGaps=False):
+            allowDataGaps=False,
+            isOptionalSensor=False):
         WARNING_RELATIVE_DELTA_TIME = 0.2
         DATA_GAP_RELATIVE_DELTA_TIME = 10
         MIN_DATA_GAP_SECONDS = 0.25
@@ -152,7 +153,7 @@ class Status:
                 plottype="scatter",
                 xLabel="Time (s)",
                 yLabel="Time diff (ms)",
-                yScale="log" if dataGaps > 0 else None,
+                yScale="symlog" if dataGaps > 0 else None,
                 s=10,
                 **plotArgs))
 
@@ -168,7 +169,7 @@ class Status:
             )
 
         if dataGaps > 0 and not allowDataGaps:
-            self.__addIssue(DiagnosisLevel.ERROR,
+            self.__addIssue(DiagnosisLevel.WARNING if isOptionalSensor else DiagnosisLevel.ERROR,
                 f"Found {dataGaps} gaps in the data longer than {SECONDS_TO_MILLISECONDS*thresholdDataGap:.1f}ms.")
 
         if badDeltaTimes > MAX_BAD_DELTA_TIME_RATIO * total and not allowDataGaps:
@@ -180,12 +181,12 @@ class Status:
 
         frequency = 1.0 / medianDeltaTime
         if minFrequencyHz is not None and frequency < minFrequencyHz:
-            self.__addIssue(DiagnosisLevel.ERROR,
+            self.__addIssue(DiagnosisLevel.WARNING if isOptionalSensor else DiagnosisLevel.ERROR,
                 f"Minimum required frequency is {minFrequencyHz:.1f}Hz but data is {frequency:.1f}Hz"
             )
 
         if maxFrequencyHz is not None and frequency > maxFrequencyHz:
-            self.__addIssue(DiagnosisLevel.ERROR,
+            self.__addIssue(DiagnosisLevel.WARNING if isOptionalSensor else DiagnosisLevel.ERROR,
                 f"Maximum allowed frequency is {maxFrequencyHz:.1f}Hz but data is {frequency:.1f}Hz"
             )
 
@@ -233,16 +234,15 @@ class Status:
             signal,
             timestamps,
             samplingRate,
-            cutoffFrequency,
             noiseThreshold,
             sensorName,
             measurementUnit):
         WINDOW_SIZE_SECONDS = 1.0
         count = np.shape(timestamps)[0]
         windowSize = int(WINDOW_SIZE_SECONDS * samplingRate)
+        cutoffFrequency = samplingRate / 4.0
         if windowSize <= 0: return
         if count < windowSize: return
-        if cutoffFrequency >= 2.0 * samplingRate: return
 
         def highpass(signal, fs, cutoff, order=3):
             from scipy.signal import butter, filtfilt
@@ -428,7 +428,6 @@ def diagnoseAccelerometer(data, output):
     ACC_MIN_FREQUENCY_HZ = 50.0
     ACC_MAX_FREQUENCY_HZ = 1e4
     ACC_NOISE_THRESHOLD = 2.5 # m/s²
-    ACC_CUTOFF_FREQUENCY_HZ = 50.0
     ACC_UNIT_CHECK_THRESHOLD = 200.0 # m/s²
 
     sensor = data["accelerometer"]
@@ -447,7 +446,6 @@ def diagnoseAccelerometer(data, output):
         return
 
     samplingRate = computeSamplingRate(deltaTimes)
-    cutoffThreshold = min(samplingRate / 4.0, ACC_CUTOFF_FREQUENCY_HZ)
 
     status = Status()
     status.analyzeTimestamps(
@@ -470,7 +468,6 @@ def diagnoseAccelerometer(data, output):
         signal,
         timestamps,
         samplingRate,
-        cutoffThreshold,
         ACC_NOISE_THRESHOLD,
         sensorName="Accelerometer",
         measurementUnit="m/s²")
@@ -572,7 +569,8 @@ def diagnoseMagnetometer(data, output):
         MAGN_MAX_FREQUENCY_HZ,
         plotArgs={
             "title": "Magnetometer time diff"
-        })
+        },
+        isOptionalSensor=True)
     status.analyzeSignalDuplicateValues(signal)
     status.analyzeSignalUnit(
         signal,
@@ -622,7 +620,8 @@ def diagnoseBarometer(data, output):
         BARO_MAX_FREQUENCY_HZ,
         plotArgs={
             "title": "Barometer time diff"
-        })
+        },
+        isOptionalSensor=True)
     status.analyzeSignalDuplicateValues(signal, BARO_DUPLICATE_VALUE_THRESHOLD)
     status.analyzeSignalUnit(
         signal,
@@ -670,7 +669,8 @@ def diagnoseGps(data, output):
         plotArgs={
             "title": "GPS time diff"
         },
-        allowDataGaps=True)
+        allowDataGaps=True,
+        isOptionalSensor=True)
     status.analyzeSignalDuplicateValues(signal)
 
     output["gps"] = {
