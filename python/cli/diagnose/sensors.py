@@ -30,6 +30,7 @@ def plotFrame(
         ymax=None,
         xScale=None,
         yScale=None,
+        equalAxis=False,
         plot=False,
         **kwargs):
     import matplotlib.pyplot as plt
@@ -47,6 +48,9 @@ def plotFrame(
         p(x, ys, style, **kwargs)
     else:
         p(x, ys, **kwargs)
+
+    if equalAxis:
+        ax.set_aspect('equal', adjustable='datalim')
 
     if xLabel is not None: ax.set_xlabel(xLabel)
     if yLabel is not None: ax.set_ylabel(yLabel)
@@ -687,7 +691,8 @@ def diagnoseGps(data, output):
                 yLabel="ENU y (m)",
                 style='-' if len(timestamps) > 1 else '.',
                 yScale="linear",
-                xScale="linear"),
+                xScale="linear",
+                equalAxis=True),
             plotFrame(
                 timestamps,
                 signal[:, 2],
