@@ -12,8 +12,7 @@ from .gnss import GnssConverter
 
 def define_args(parser):
     parser.add_argument("dataset_path", type=pathlib.Path, help="Path to dataset")
-    parser.add_argument("--output_html", type=pathlib.Path, help="Path to calibration report HTML output.")
-    parser.add_argument("--output_json", type=pathlib.Path, help="Path to JSON output.")
+    parser.add_argument("output_html", type=pathlib.Path, help="Path to calibration report HTML output.")
     parser.add_argument("--zero", help="Rescale time to start from zero", action='store_true')
     parser.add_argument("--skip", type=float, help="Skip N seconds from the start")
     parser.add_argument("--max", type=float, help="Plot max N seconds from the start")
@@ -37,10 +36,6 @@ def generateReport(args):
         'date': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         'dataset_path': str(jsonlFile.parent)
     }
-
-    if not args.output_html and not args.output_json:
-        print("Either --output_html or --output_json is required")
-        return
 
     data = {
         'accelerometer': {"v": [], "t": [], "td": []},
@@ -138,18 +133,10 @@ def generateReport(args):
     diagnoseGNSS(data, output)
     diagnoseCpu(data, output)
 
-    if args.output_json:
-        if os.path.dirname(args.output_json):
-            os.makedirs(os.path.dirname(args.output_json), exist_ok=True)
-        with open(args.output_json, "w") as f:
-            f.write(json.dumps(output, indent=4))
-        print("Generated JSON report data at:", args.output_json)
-
-    if args.output_html:
-        if os.path.dirname(args.output_html):
-            os.makedirs(os.path.dirname(args.output_html), exist_ok=True)
-        generateHtml(output, args.output_html)
-        print("Generated HTML report at:", args.output_html)
+    if os.path.dirname(args.output_html):
+        os.makedirs(os.path.dirname(args.output_html), exist_ok=True)
+    generateHtml(output, args.output_html)
+    print("Generated HTML report at:", args.output_html)
 
 if __name__ == '__main__':
     def parse_args():
