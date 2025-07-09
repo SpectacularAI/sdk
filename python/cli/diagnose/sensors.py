@@ -652,11 +652,11 @@ def diagnoseBarometer(data, output):
     if status.diagnosis == DiagnosisLevel.ERROR:
         output["passed"] = False
 
-def diagnoseGps(data, output):
-    GPS_MIN_FREQUENCY_HZ = None
-    GPS_MAX_FREQUENCY_HZ = 100.0
+def diagnoseGNSS(data, output):
+    GNSS_MIN_FREQUENCY_HZ = None
+    GNSS_MAX_FREQUENCY_HZ = 100.0
 
-    sensor = data["gps"]
+    sensor = data["gnss"]
     timestamps = np.array(sensor["t"])
     deltaTimes = np.array(sensor["td"])
     signal = np.array(sensor['v'])
@@ -668,16 +668,16 @@ def diagnoseGps(data, output):
         timestamps,
         deltaTimes,
         getImuTimestamps(data),
-        GPS_MIN_FREQUENCY_HZ,
-        GPS_MAX_FREQUENCY_HZ,
+        GNSS_MIN_FREQUENCY_HZ,
+        GNSS_MAX_FREQUENCY_HZ,
         plotArgs={
-            "title": "GPS time diff"
+            "title": "GNSS time diff"
         },
         allowDataGaps=True,
         isOptionalSensor=True)
     status.analyzeSignalDuplicateValues(signal)
 
-    output["gps"] = {
+    output["GNSS"] = {
         "diagnosis": status.diagnosis.toString(),
         "issues": status.serializeIssues(),
         "frequency": computeSamplingRate(deltaTimes),
@@ -686,7 +686,7 @@ def diagnoseGps(data, output):
             plotFrame(
                 signal[:, 0],
                 signal[:, 1],
-                "GPS position",
+                "GNSS position",
                 xLabel="ENU x (m)",
                 yLabel="ENU y (m)",
                 style='-' if len(timestamps) > 1 else '.',
@@ -696,7 +696,7 @@ def diagnoseGps(data, output):
             plotFrame(
                 timestamps,
                 signal[:, 2],
-                "GPS altitude (WGS-84)",
+                "GNSS altitude (WGS-84)",
                 xLabel="Time (s)",
                 yLabel="Altitude (m)",
                 style='-' if len(timestamps) > 1 else '.')

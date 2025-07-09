@@ -162,17 +162,17 @@ def generateHtml(output, outputHtml):
         for camera in output["cameras"]:
             kvPairs.append((
                 'Camera #{}'.format(camera["ind"]),
-                '{:.1f}Hz {} frames'.format(
+                '{:.1f} Hz<span style="color: gray">, {} frames</span>'.format(
                     camera["frequency"],
                     camera["count"])))
 
-    SENSOR_NAMES = ["accelerometer", "gyroscope", "magnetometer", "barometer", "gps"]
+    SENSOR_NAMES = ["accelerometer", "gyroscope", "magnetometer", "barometer", "GNSS"]
     for sensor in SENSOR_NAMES:
         if sensor not in output: continue
         kvPairs.append((
-            sensor.capitalize(),
+            sensor.capitalize() if sensor.islower() else sensor,
             'No data' if output[sensor]["count"] == 0 else
-            '{:.1f}Hz {} samples'.format(
+            '{:.1f} Hz<span style="color: gray">, {} samples</span>'.format(
                 output[sensor]["frequency"],
                 output[sensor]["count"]
             )))
@@ -194,7 +194,8 @@ def generateHtml(output, outputHtml):
 
     for sensor in SENSOR_NAMES:
         if sensor not in output: continue
-        s += generateSensor(output[sensor], sensor.capitalize())
+        name = sensor.capitalize() if sensor.islower() else sensor
+        s += generateSensor(output[sensor], name)
 
     s += TAIL
 
