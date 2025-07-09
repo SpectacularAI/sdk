@@ -47,7 +47,7 @@ def generateReport(args):
         'gyroscope': {"v": [], "t": [], "td": []},
         'magnetometer': {"v": [], "t": [], "td": []},
         'barometer': {"v": [], "t": [], "td": []},
-        'gps': {"v": [], "t": [], "td": []},
+        'gnss': {"v": [], "t": [], "td": []},
         'cpu': {"v": [], "t": []},
         'cameras': {}
     }
@@ -76,7 +76,7 @@ def generateReport(args):
             time = measurement.get("time")
             sensor = measurement.get("sensor")
             barometer = measurement.get("barometer")
-            gps = measurement.get("gps")
+            gnss = measurement.get("gps")
             frames = measurement.get("frames")
             metrics = measurement.get("systemMetrics")
             if frames is None and 'frame' in measurement:
@@ -89,7 +89,7 @@ def generateReport(args):
                 and frames is None
                 and metrics is None
                 and barometer is None
-                and gps is None): continue
+                and gnss is None): continue
 
             if startTime is None:
                 startTime = time
@@ -109,9 +109,9 @@ def generateReport(args):
                     addMeasurement(measurementType, t, v)
             elif barometer is not None:
                 addMeasurement("barometer", t, barometer["pressureHectopascals"])
-            elif gps is not None:
-                enu = gnssConverter.enu(gps["latitude"], gps["longitude"], gps["altitude"])
-                addMeasurement("gps", t, [enu["x"], enu["y"], gps["altitude"]])
+            elif gnss is not None:
+                enu = gnssConverter.enu(gnss["latitude"], gnss["longitude"], gnss["altitude"])
+                addMeasurement("gnss", t, [enu["x"], enu["y"], gnss["altitude"]])
             elif frames is not None:
                 for f in frames:
                     if f.get("missingBitmap", False): continue
@@ -135,7 +135,7 @@ def generateReport(args):
     diagnoseGyroscope(data, output)
     diagnoseMagnetometer(data, output)
     diagnoseBarometer(data, output)
-    diagnoseGps(data, output)
+    diagnoseGNSS(data, output)
     diagnoseCpu(data, output)
 
     if args.output_json:
