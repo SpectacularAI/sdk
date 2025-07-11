@@ -403,9 +403,8 @@ class Status:
 
         ax.set_ylim(0, ylim)
 
-        if legend is not None:
-            leg = ax.legend(legend, fontsize='large', markerscale=10)
-            for line in leg.get_lines(): line.set_linewidth(2)
+        leg = ax.legend(legend, fontsize='large', markerscale=10)
+        for line in leg.get_lines(): line.set_linewidth(2)
 
         fig.tight_layout()
         self.images.append(base64(fig))
