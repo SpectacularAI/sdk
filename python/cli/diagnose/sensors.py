@@ -381,7 +381,7 @@ class Status:
                 f"95th percentile CPU usage {p95:.1f}% is above the threshold ({CPU_USAGE_THRESHOLD:.1f}%)."
             )
         elif p99 > CPU_USAGE_THRESHOLD:
-            self.__addIssue(DiagnosisLevel.ERROR,
+            self.__addIssue(DiagnosisLevel.WARNING,
                 f"99th percentile CPU usage {p99:.1f}% is above the threshold ({CPU_USAGE_THRESHOLD:.1f}%)."
             )
 
