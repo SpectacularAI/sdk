@@ -166,7 +166,7 @@ def generateHtml(output, outputHtml):
                     camera["frequency"],
                     camera["count"])))
 
-    SENSOR_NAMES = ["accelerometer", "gyroscope", "magnetometer", "barometer", "GNSS"]
+    SENSOR_NAMES = ["accelerometer", "gyroscope", "magnetometer", "barometer", "GNSS", "CPU"]
     for sensor in SENSOR_NAMES:
         if sensor not in output: continue
         kvPairs.append((
