@@ -43,7 +43,7 @@ def generateReport(args):
         'magnetometer': {"v": [], "t": [], "td": []},
         'barometer': {"v": [], "t": [], "td": []},
         'gnss': {"v": [], "t": [], "td": []},
-        'cpu': {"v": [], "t": []},
+        'cpu': {"v": [], "t": [], "td": [], "processes": {}},
         'cameras': {}
     }
 
@@ -120,8 +120,19 @@ def generateReport(args):
                     if "features" in f: cameras[ind]["features"].append(len(f["features"]))
                     cameras[ind]["t"].append(t)
             elif metrics is not None and 'cpu' in metrics:
-                data["cpu"]["t"].append(t)
-                data["cpu"]["v"].append(metrics['cpu'].get('systemTotalUsagePercent', 0))
+                addMeasurement("cpu", t, metrics['cpu'].get('systemTotalUsagePercent', 0))
+                usedProcessNames = {}  # Track duplicate process names
+                for process in metrics['cpu'].get('processes', []):
+                    name = process.get('name')
+                    if not name: continue
+
+                    count = usedProcessNames.get(name, 0)
+                    usedProcessNames[name] = count + 1
+                    uniqueName = f"{name} {count + 1}" if count else name
+
+                    processData = data['cpu']["processes"].setdefault(uniqueName, {"v": [], "t": []})
+                    processData['v'].append(process['usagePercent'])
+                    processData['t'].append(t)
 
         if nSkipped > 0: print(f'Skipped {nSkipped} lines')
 
@@ -131,7 +142,7 @@ def generateReport(args):
     diagnoseMagnetometer(data, output)
     diagnoseBarometer(data, output)
     diagnoseGNSS(data, output)
-    diagnoseCpu(data, output)
+    diagnoseCPU(data, output)
 
     if os.path.dirname(args.output_html):
         os.makedirs(os.path.dirname(args.output_html), exist_ok=True)

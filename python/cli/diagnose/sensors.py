@@ -294,7 +294,7 @@ class Status:
         plt.ylabel(measurementUnit)
 
         fig.suptitle(f"Preview of {sensorName} signal noise (mean={noiseScale:.1f}{measurementUnit}, threshold={noiseThreshold:.1f}{measurementUnit})")
-        fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+        fig.tight_layout()
         self.images.append(base64(fig))
 
         if noiseScale > noiseThreshold:
@@ -364,6 +364,50 @@ class Status:
                 f"Mean accelerometer magnitude {mean:.1f} is below the expected threshold ({ACC_NORM_THRESHOLD:.1f}). "
                 "This suggests the signal may be missing gravitational acceleration."
             )
+
+    def analyzeCpuUsage(self, signal, timestamps, processes):
+        CPU_USAGE_THRESHOLD = 90.0
+
+        mean = np.mean(signal)
+        p95 = np.percentile(signal, 95)
+        p99 = np.percentile(signal, 99)
+
+        if mean > CPU_USAGE_THRESHOLD:
+            self.__addIssue(DiagnosisLevel.WARNING,
+                f"Average CPU usage {mean:.1f}% is above the threshold ({CPU_USAGE_THRESHOLD:.1f}%)."
+            )
+        elif p95 > CPU_USAGE_THRESHOLD:
+            self.__addIssue(DiagnosisLevel.WARNING,
+                f"95th percentile CPU usage {p95:.1f}% is above the threshold ({CPU_USAGE_THRESHOLD:.1f}%)."
+            )
+        elif p99 > CPU_USAGE_THRESHOLD:
+            self.__addIssue(DiagnosisLevel.WARNING,
+                f"99th percentile CPU usage {p99:.1f}% is above the threshold ({CPU_USAGE_THRESHOLD:.1f}%)."
+            )
+
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots(figsize=(8, 6))
+
+        ax.plot(timestamps, signal, label="System total", linestyle='-')
+        ax.set_title("CPU usage")
+        ax.set_ylabel("CPU usage (%)")
+        ax.set_xlabel("Time (s)")
+
+        legend = ['System total']
+        ylim = 100
+        for name, data in processes.items():
+            if len(data['v']) == 0: continue
+            ax.plot(data['t'], data['v'], label=name, linestyle='--')
+            legend.append(name)
+            ylim = max(ylim, np.max(data['v']) * 1.1)
+
+        ax.set_ylim(0, ylim)
+
+        leg = ax.legend(legend, fontsize='large', markerscale=10)
+        for line in leg.get_lines(): line.set_linewidth(2)
+
+        fig.tight_layout()
+        self.images.append(base64(fig))
 
     def serializeIssues(self):
         self.issues = sorted(self.issues, key=lambda x: x[0], reverse=True)
@@ -705,13 +749,22 @@ def diagnoseGNSS(data, output):
     if status.diagnosis == DiagnosisLevel.ERROR:
         output["passed"] = False
 
-def diagnoseCpu(data, output):
-    data = data["cpu"]
-    timestamps = np.array(data["t"])
-    values = data["v"]
+def diagnoseCPU(data, output):
+    sensor = data["cpu"]
+    timestamps = np.array(sensor["t"])
+    deltaTimes = np.array(sensor["td"])
+    signal = np.array(sensor['v'])
+    processes = sensor["processes"]
 
     if len(timestamps) == 0: return
 
-    output["cpu"] = {
-        "image": plotFrame(timestamps, values, "CPU system load (%)", ymin=0, ymax=100)
+    status = Status()
+    status.analyzeCpuUsage(signal, timestamps, processes)
+
+    output["CPU"] = {
+        "diagnosis": status.diagnosis.toString(),
+        "issues": status.serializeIssues(),
+        "frequency": computeSamplingRate(deltaTimes),
+        "count": len(timestamps),
+        "images": status.images
     }
