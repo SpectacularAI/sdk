@@ -38,6 +38,7 @@ def define_args(p):
     p.add_argument("--no_rgb", help="Disable recording RGB video feed", action="store_true")
     p.add_argument("--no_inputs", help="Disable recording JSONL and depth", action="store_true")
     p.add_argument("--gray", help="Record (rectified) gray video data", action="store_true")
+    p.add_argument("--gray_preview", help="Show live preview of (rectified) gray video", action="store_true")
     p.add_argument("--no_convert", help="Skip converting h265 video file", action="store_true")
     p.add_argument('--no_preview', help='Do not show a live preview', action="store_true")
     p.add_argument('--preview3d', help='Use more advanced visualizer instead of matplotlib', action="store_true")
@@ -220,6 +221,15 @@ def record(args):
         create_gray_encoder(vio_pipeline.stereo.rectifiedLeft, 'left')
         create_gray_encoder(vio_pipeline.stereo.rectifiedRight, 'right')
 
+    if args.gray_preview:
+        def create_gray_preview(node, name):
+            xout_preview = pipeline.create(depthai.node.XLinkOut)
+            xout_preview.setStreamName("gray-preview-" + name)
+            node.link(xout_preview.input)
+
+        create_gray_preview(vio_pipeline.stereo.rectifiedLeft, 'left')
+        create_gray_preview(vio_pipeline.stereo.rectifiedRight, 'right')
+
     cameraControlQueueNames = []
     if args.white_balance or args.exposure or args.sensitivity:
         def create_rgb_camera_control(colorCameraNode):
@@ -249,16 +259,27 @@ def record(args):
             if args.ir_dot_brightness > 0:
                 device.setIrLaserDotProjectorBrightness(args.ir_dot_brightness)
 
-            def open_gray_video(name):
-                grayVideoFile = open(outputFolder + '/rectified_' + name + '.h264', 'wb')
-                queue = device.getOutputQueue(name='h264-' + name, maxSize=10, blocking=False)
-                return (queue, grayVideoFile)
-
             grayVideos = []
             if args.gray:
+                def open_gray_video(name):
+                    grayVideoFile = open(outputFolder + '/rectified_' + name + '.h264', 'wb')
+                    queue = device.getOutputQueue(name='h264-' + name, maxSize=10, blocking=False)
+                    return (queue, grayVideoFile)
+
                 grayVideos = [
                     open_gray_video('left'),
                     open_gray_video('right')
+                ]
+
+            grayPreviews = []
+            if args.gray_preview:
+                def open_gray_preview(name):
+                    queue = device.getOutputQueue(name='gray-preview-' + name, maxSize=10, blocking=False)
+                    return (queue, name)
+
+                grayPreviews = [
+                    open_gray_preview('left'),
+                    open_gray_preview('right')
                 ]
 
             if rgb_as_video:
@@ -297,6 +318,14 @@ def record(args):
                         grayQueue.get().getData().tofile(grayVideoFile)
                         progress = True
 
+                for (grayPreviewQueue, name) in grayPreviews:
+                    if grayPreviewQueue.has():
+                        import cv2
+                        frame = grayPreviewQueue.get().getCvFrame()
+                        cv2.imshow(name, frame)
+                        cv2.waitKey(1)
+                        progress = True
+
                 if vio_session.hasOutput():
                     out = vio_session.getOutput()
                     progress = True
@@ -319,6 +348,10 @@ def record(args):
         for (_, grayVideoFile) in grayVideos:
             videoFileNames.append(grayVideoFile.name)
             grayVideoFile.close()
+
+        if len(grayVideos) > 0:
+            import cv2
+            cv2.destroyAllWindows()
 
         for fn in videoFileNames:
             if not args.no_convert:
