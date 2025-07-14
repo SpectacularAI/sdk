@@ -349,7 +349,7 @@ def record(args):
             videoFileNames.append(grayVideoFile.name)
             grayVideoFile.close()
 
-        if len(grayVideos) > 0:
+        if len(grayPreviews) > 0:
             import cv2
             cv2.destroyAllWindows()
 
