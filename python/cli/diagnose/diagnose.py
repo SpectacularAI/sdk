@@ -42,8 +42,18 @@ def generateReport(args):
         'gyroscope': {"v": [], "t": [], "td": []},
         'magnetometer': {"v": [], "t": [], "td": []},
         'barometer': {"v": [], "t": [], "td": []},
-        'gnss': {"v": [], "t": [], "td": []},
         'cpu': {"v": [], "t": [], "td": [], "processes": {}},
+        'gnss': {
+            "t": [],
+            "td": [],
+            "position": [], # ENU
+            "altitude": []  # WGS-84
+        },
+        'vio': {"t": [], "td": [], "status": [], "position": [], "global": {
+            "position": [], # ENU
+            "velocity": [], # ENU
+            "altitude": []  # WGS-84
+        }},
         'cameras': {}
     }
 
@@ -74,6 +84,7 @@ def generateReport(args):
             gnss = measurement.get("gps")
             frames = measurement.get("frames")
             metrics = measurement.get("systemMetrics")
+            vioOutput = measurement if "status" in measurement else None
             if frames is None and 'frame' in measurement:
                 frames = [measurement['frame']]
                 frames[0]['cameraInd'] = 0
@@ -84,13 +95,13 @@ def generateReport(args):
                 and frames is None
                 and metrics is None
                 and barometer is None
-                and gnss is None): continue
+                and gnss is None
+                and vioOutput is None): continue
 
             if startTime is None:
                 startTime = time
                 if args.zero:
                     timeOffset = startTime
-
 
             if (args.skip is not None and time - startTime < args.skip) or (args.max is not None and time - startTime > args.max):
                 nSkipped += 1
@@ -105,8 +116,14 @@ def generateReport(args):
             elif barometer is not None:
                 addMeasurement("barometer", t, barometer["pressureHectopascals"])
             elif gnss is not None:
+                gnssData = data["gnss"]
+                if len(gnssData["t"]) > 0:
+                    diff = t - gnssData["t"][-1]
+                    gnssData["td"].append(diff)
+                gnssData["t"].append(t)
                 enu = gnssConverter.enu(gnss["latitude"], gnss["longitude"], gnss["altitude"])
-                addMeasurement("gnss", t, [enu["x"], enu["y"], gnss["altitude"]])
+                gnssData["position"].append([enu[c] for c in "xyz"])
+                gnssData["altitude"].append(gnss["altitude"])
             elif frames is not None:
                 for f in frames:
                     if f.get("missingBitmap", False): continue
@@ -125,14 +142,27 @@ def generateReport(args):
                 for process in metrics['cpu'].get('processes', []):
                     name = process.get('name')
                     if not name: continue
-
                     count = usedProcessNames.get(name, 0)
                     usedProcessNames[name] = count + 1
                     uniqueName = f"{name} {count + 1}" if count else name
-
                     processData = data['cpu']["processes"].setdefault(uniqueName, {"v": [], "t": []})
                     processData['v'].append(process['usagePercent'])
                     processData['t'].append(t)
+            elif vioOutput is not None:
+                vio = data["vio"]
+                if len(vio["t"]) > 0:
+                    diff = t - vio["t"][-1]
+                    vio["td"].append(diff)
+                vio["t"].append(t)
+                vio["status"].append(vioOutput["status"])
+                vio["position"].append([vioOutput["position"][c] for c in "xyz"])
+                if "globalPose" in vioOutput:
+                    globalPose = vioOutput["globalPose"]
+                    wgs84 = vioOutput["globalPose"]["coordinates"]
+                    enu = gnssConverter.enu(wgs84["latitude"], wgs84["longitude"], wgs84["altitude"])
+                    vio["global"]["position"].append([enu[c] for c in "xyz"])
+                    vio["global"]["velocity"].append([globalPose["velocity"][c] for c in "xyz"])
+                    vio["global"]["altitude"].append(wgs84["altitude"])
 
         if nSkipped > 0: print(f'Skipped {nSkipped} lines')
 
@@ -143,6 +173,7 @@ def generateReport(args):
     diagnoseBarometer(data, output)
     diagnoseGNSS(data, output)
     diagnoseCPU(data, output)
+    diagnoseVIO(data, output)
 
     if os.path.dirname(args.output_html):
         os.makedirs(os.path.dirname(args.output_html), exist_ok=True)
