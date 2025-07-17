@@ -409,6 +409,167 @@ class Status:
         fig.tight_layout()
         self.images.append(base64(fig))
 
+    def analyzeTrackingStatus(self, status):
+        initialized = False
+        lostTracking = False
+        lostTrackingBeforeEnd = False
+        for s in status:
+            if not initialized and s == "TRACKING":
+                initialized = True
+
+            if initialized and s == "LOST_TRACKING":
+                lostTracking = True
+
+            if lostTracking and s == "TRACKING":
+                lostTrackingBeforeEnd = True
+
+        if not initialized:
+            self.__addIssue(DiagnosisLevel.ERROR, "VIO failed to initialize")
+
+        if lostTrackingBeforeEnd:
+            self.__addIssue(DiagnosisLevel.WARNING, "VIO lost tracking before end of dataset")
+
+    def analyzeVIOVelocity(self, velocity, timestamps, groundTruth=None):
+        if groundTruth is None:
+            self.images.append(plotFrame(
+                x=timestamps,
+                ys=velocity,
+                title=f"VIO velocity in ENU coordinates",
+                yLabel=f"Velocity ENU (m/s)",
+                legend=['x', 'y', 'z'],
+                linewidth=2.0,
+                **SIGNAL_PLOT_KWARGS))
+            return
+
+        # If intervalSeconds is provided, the data is sampled at that rate to compute velocity from position
+        # despite how high frequency it is, to prevent small delta time cause inaccuracies in velocity
+        def computeVelocity(data, intervalSeconds=None):
+            FILTER_SPIKES = False
+
+            if intervalSeconds:
+                p = []
+                t = []
+                prevT = None
+                for i in range(len(data["t"])):
+                    pos = data["position"][i]
+                    time = data["t"][i]
+                    if prevT == None or time - prevT >= intervalSeconds:
+                        prevT = time
+                        p.append(pos)
+                        t.append(time)
+                p = np.array(p)
+                t = np.array(t)
+            else:
+                p = np.array(data["position"])
+                t = np.array(data["t"])
+
+            ts = []
+            vs = []
+            i = 0
+            for i in range(1, p.shape[0] - 1):
+                dt = t[i + 1] - t[i - 1]
+                if dt <= 0: continue
+                dp = p[i + 1] - p[i - 1]
+                v = dp / dt
+                if FILTER_SPIKES and np.linalg.norm(v) > 50.: continue
+                ts.append(t[i])
+                vs.append([v[0], v[1], v[2]])
+            return np.array(ts), np.array(vs)
+
+        GT_MIN_VELOCITY_INTERVAL_SECONDS = 1.0
+        gtTime, gtVelocity = computeVelocity(groundTruth, GT_MIN_VELOCITY_INTERVAL_SECONDS)
+
+        import matplotlib.pyplot as plt
+        fig, _ = plt.subplots(3, 1, figsize=(8, 6))
+
+        plt.subplot(3, 1, 1)
+        plt.plot(timestamps, velocity[:, 0], label="VIO")
+        plt.plot(gtTime, gtVelocity[:, 0], label="GNSS")
+        plt.ylabel("East (m/s)")
+        plt.legend()
+
+        plt.subplot(3, 1, 2)
+        plt.plot(timestamps, velocity[:, 1], label="VIO")
+        plt.plot(gtTime, gtVelocity[:, 1], label="GNSS")
+        plt.ylabel("North (m/s)")
+
+        plt.subplot(3, 1, 3)
+        plt.plot(timestamps, velocity[:, 2], label="VIO (z)")
+        plt.plot(gtTime, gtVelocity[:, 2], label="GNSS")
+        plt.ylabel("Up (m/s)")
+
+        fig.suptitle(f"VIO velocity in ENU coordinates")
+        fig.tight_layout()
+        self.images.append(base64(fig))
+
+    def analyzeVIOPosition(
+            self,
+            positionENU,
+            altitudeWGS84,
+            timestamps,
+            trackingStatus,
+            groundTruth):
+        if groundTruth is None:
+            self.images.append(plotFrame(
+                positionENU[:, 0],
+                positionENU[:, 1],
+                "VIO position in ENU coordinates",
+                xLabel="x (m)",
+                yLabel="y (m)",
+                style='-' if len(timestamps) > 1 else '.',
+                yScale="linear",
+                xScale="linear",
+                equalAxis=True),
+            )
+            self.images.append(plotFrame(
+                timestamps,
+                altitudeWGS84,
+                "VIO altitude in WGS-84 coordinates",
+                xLabel="Time (s)",
+                yLabel="Altitude (m)",
+                style='-' if len(timestamps) > 1 else '.'))
+            return
+
+        import matplotlib.pyplot as plt
+        import numpy as np
+
+        fig, _ = plt.subplots(2, 1, figsize=(8, 6))
+
+        gtPosition = np.array(groundTruth["position"])
+        gtAltitudeWGS84 = np.array(groundTruth["altitude"])
+        gtTime = np.array(groundTruth["t"])
+
+        # Get lost tracking indices
+        lostIndices = [i for i, status in enumerate(trackingStatus) if status == "LOST_TRACKING"]
+
+        ax1 = plt.subplot(2, 1, 1)
+        ax1.plot(positionENU[:, 0], positionENU[:, 1], label="VIO")
+        ax1.plot(gtPosition[:, 0], gtPosition[:, 1], label="GNSS")
+
+        # Plot lost tracking points
+        if lostIndices:
+            lostPositions = positionENU[lostIndices]
+            ax1.scatter(lostPositions[:, 0], lostPositions[:, 1], color='red', marker='o', label="Tracking lost")
+
+        ax1.set_title("VIO position in ENU coordinates")
+        ax1.set_xlabel("East (m)")
+        ax1.set_ylabel("North (m)")
+        ax1.legend()
+        ax1.set_xscale("linear")
+        ax1.set_yscale("linear")
+        ax1.set_aspect("equal", adjustable="datalim")
+
+        ax2 = plt.subplot(2, 1, 2)
+        ax2.plot(timestamps, altitudeWGS84, label="VIO")
+        ax2.plot(gtTime, gtAltitudeWGS84, label="GNSS")
+        ax2.set_title("VIO altitude in WGS-84 coordinates")
+        ax2.set_xlabel("Time (s)")
+        ax2.set_ylabel("Altitude (m)")
+        ax2.legend()
+
+        fig.tight_layout()
+        self.images.append(base64(fig))
+
     def serializeIssues(self):
         self.issues = sorted(self.issues, key=lambda x: x[0], reverse=True)
         return [{
@@ -487,10 +648,17 @@ def diagnoseAccelerometer(data, output):
         # Accelerometer is required
         output["accelerometer"] = {
             "diagnosis": DiagnosisLevel.ERROR.toString(),
-            "issues": ["Missing accelerometer data."],
+            "issues": [
+                {
+                    "diagnosis": DiagnosisLevel.ERROR.toString(),
+                    "message": "Missing accelerometer data."
+                }
+            ],
+            "frequency": 0,
             "count": 0,
             "images": []
         }
+        output["passed"] = False
         return
 
     samplingRate = computeSamplingRate(deltaTimes)
@@ -553,7 +721,13 @@ def diagnoseGyroscope(data, output):
         # Gyroscope is required
         output["gyroscope"] = {
             "diagnosis": DiagnosisLevel.ERROR.toString(),
-            "issues": ["Missing gyroscope data."],
+            "issues": [
+                {
+                    "diagnosis": DiagnosisLevel.ERROR.toString(),
+                    "message": "Missing gyroscope data."
+                }
+            ],
+            "frequency": 0,
             "count": 0,
             "images": []
         }
@@ -703,7 +877,8 @@ def diagnoseGNSS(data, output):
     sensor = data["gnss"]
     timestamps = np.array(sensor["t"])
     deltaTimes = np.array(sensor["td"])
-    signal = np.array(sensor['v'])
+    positionEnu = np.array(sensor["position"])
+    altitude = np.array(sensor["altitude"])
 
     if len(timestamps) == 0: return
 
@@ -719,7 +894,7 @@ def diagnoseGNSS(data, output):
         },
         allowDataGaps=True,
         isOptionalSensor=True)
-    status.analyzeSignalDuplicateValues(signal)
+    status.analyzeSignalDuplicateValues(positionEnu)
 
     output["GNSS"] = {
         "diagnosis": status.diagnosis.toString(),
@@ -728,8 +903,8 @@ def diagnoseGNSS(data, output):
         "count": len(timestamps),
         "images": [
             plotFrame(
-                signal[:, 0],
-                signal[:, 1],
+                positionEnu[:, 0],
+                positionEnu[:, 1],
                 "GNSS position",
                 xLabel="ENU x (m)",
                 yLabel="ENU y (m)",
@@ -739,7 +914,7 @@ def diagnoseGNSS(data, output):
                 equalAxis=True),
             plotFrame(
                 timestamps,
-                signal[:, 2],
+                altitude,
                 "GNSS altitude (WGS-84)",
                 xLabel="Time (s)",
                 yLabel="Altitude (m)",
@@ -768,3 +943,73 @@ def diagnoseCPU(data, output):
         "count": len(timestamps),
         "images": status.images
     }
+
+def diagnoseVIO(data, output):
+    VIO_MIN_FREQUENCY_HZ = 1.0
+    VIO_MAX_FREQUENCY_HZ = 1e4
+
+    vio = data["vio"]
+    timestamps = np.array(vio["t"])
+    deltaTimes = np.array(vio["td"])
+    trackingStatus = np.array(vio["status"])
+    position = np.array(vio["position"])
+    hasGlobalOutput = len(vio["global"]["position"]) > 0
+    if hasGlobalOutput:
+        positionENU = np.array(vio["global"]["position"])
+        velocityENU = np.array(vio["global"]["velocity"])
+        altitudeWGS84 = np.array(vio["global"]["altitude"])
+
+    if len(timestamps) == 0: return
+
+    status = Status()
+    status.analyzeTimestamps(
+        timestamps,
+        deltaTimes,
+        getImuTimestamps(data),
+        VIO_MIN_FREQUENCY_HZ,
+        VIO_MAX_FREQUENCY_HZ,
+        plotArgs={
+            "title": "VIO time diff"
+        },
+        allowDataGaps=True,
+        isOptionalSensor=True)
+    status.analyzeTrackingStatus(trackingStatus)
+
+    images = []
+    if hasGlobalOutput:
+        groundTruth =  data["gnss"] # TODO: use groundTruth instead of gnss (if available)
+        if len(groundTruth["t"]) == 0: groundTruth = None
+        status.analyzeVIOPosition(positionENU, altitudeWGS84, timestamps, trackingStatus, groundTruth)
+        status.analyzeVIOVelocity(velocityENU, timestamps, groundTruth)
+    else:
+        # TODO: improve relative positioning analysis
+        images = [
+            plotFrame(
+                position[:, 0],
+                position[:, 1],
+                "VIO position",
+                xLabel="x (m)",
+                yLabel="y (m)",
+                style='-' if len(timestamps) > 1 else '.',
+                yScale="linear",
+                xScale="linear",
+                equalAxis=True),
+            plotFrame(
+                timestamps,
+                position[:, 2],
+                "VIO z",
+                xLabel="Time (s)",
+                yLabel="z (m)",
+                style='-' if len(timestamps) > 1 else '.')
+        ]
+
+    output["VIO"] = {
+        "diagnosis": status.diagnosis.toString(),
+        "issues": status.serializeIssues(),
+        "frequency": computeSamplingRate(deltaTimes),
+        "count": len(timestamps),
+        "images": images + status.images
+    }
+
+    if status.diagnosis == DiagnosisLevel.ERROR:
+        output["passed"] = False
