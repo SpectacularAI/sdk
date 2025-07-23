@@ -134,7 +134,7 @@ def generateReport(args):
                     else:
                         diff = t - cameras[ind]["t"][-1]
                         cameras[ind]["td"].append(diff)
-                    if "features" in f: cameras[ind]["features"].append(len(f["features"]))
+                    if "features" in f: cameras[ind]["features"].append(0 if not f["features"] else len(f["features"]))
                     cameras[ind]["t"].append(t)
             elif metrics is not None and 'cpu' in metrics:
                 addMeasurement("cpu", t, metrics['cpu'].get('systemTotalUsagePercent', 0))
