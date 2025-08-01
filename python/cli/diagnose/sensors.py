@@ -210,6 +210,67 @@ class Status:
                     f"Found {invalidTimestamps} ({toPercent(invalidTimestamps)}) "
                     "timestamps that don't overlap with IMU")
 
+    def analyzeArrivalTimes(
+            self,
+            timestamps,
+            gyroTimeDeltas,
+            plotArgs,
+            dataName="frames"):
+
+        deltaTimes = []
+        for d in gyroTimeDeltas:
+            if d["prev"] == None or d["next"] == None:
+                deltaTimes.append(None)
+            else:
+                deltaTimes.append(min(d["prev"], d["next"]))
+
+        deltaTimes = np.array(deltaTimes).astype(float)
+
+        total = len(deltaTimes)
+        if total == 0: return
+
+        medianDeltaTime = np.nanmedian(deltaTimes)
+        warningThreshold = min(.5, medianDeltaTime * 4)
+        errorThreshold = 1
+
+        COLOR_OK = (0, 1, 0) # Green
+        COLOR_WARNING = (1, 0.65, 0) # Orange
+        COLOR_ERROR = (1, 0, 0) # Red
+        deltaTimePlotColors = []
+        badDeltaTimes = 0
+        maxError = None
+        for td in deltaTimes:
+            error = max(0, (td - medianDeltaTime))
+            if maxError == None or maxError < error: maxError = error
+            if error > warningThreshold:
+                badDeltaTimes += 1
+                if error > errorThreshold:
+                    deltaTimePlotColors.append(COLOR_ERROR)
+                else:
+                    deltaTimePlotColors.append(COLOR_WARNING)
+            else:
+                deltaTimePlotColors.append(COLOR_OK)
+
+        if badDeltaTimes > 0:
+            self.images.append(plotFrame(
+                    timestamps,
+                    deltaTimes * SECONDS_TO_MILLISECONDS,
+                    color=deltaTimePlotColors,
+                    plottype="scatter",
+                    xLabel="Time (s)",
+                    yLabel="Time diff (ms)",
+                    yScale="symlog",
+                    s=10,
+                    **plotArgs))
+
+            self.__addIssue(DiagnosisLevel.ERROR if maxError > errorThreshold else DiagnosisLevel.WARNING,
+                f"Found {badDeltaTimes} {dataName} where the neibhgouring gyroscope samples "
+                f"have time difference (expected {medianDeltaTime*SECONDS_TO_MILLISECONDS:.1f}ms) "
+                f"larger than {warningThreshold*SECONDS_TO_MILLISECONDS:.1f}ms, up to {maxError*SECONDS_TO_MILLISECONDS:.1f}ms. "
+                f"This indicates that gyroscope and {dataName} for same moment of time are fed "
+                f"large time appart which may lead to data being dropped and higher latency."
+            )
+
     def analyzeSignalDuplicateValues(
             self,
             signal,
@@ -607,6 +668,12 @@ def diagnoseCamera(data, output):
             CAMERA_MAX_FREQUENCY_HZ,
             plotArgs={
                 "title": f"Camera #{ind} frame time diff"
+            })
+        status.analyzeArrivalTimes(
+            timestamps,
+            camera["gyroTimeDeltas"],
+            plotArgs={
+                "title": f"Camera #{ind} nearest gyro (in file, not time) time diff"
             })
         cameraOutput = {
             "diagnosis": status.diagnosis.toString(),

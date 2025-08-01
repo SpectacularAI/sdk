@@ -68,7 +68,10 @@ def generateReport(args):
 
     startTime = None
     timeOffset = 0
+    latestGyroTime = None
     gnssConverter = GnssConverter()
+
+    framesMissingNextGyroTime = []
 
     with open(jsonlFile) as f:
         nSkipped = 0
@@ -113,8 +116,15 @@ def generateReport(args):
                 if measurementType in ["accelerometer", "gyroscope", "magnetometer"]:
                     v = [sensor["values"][i] for i in range(3)]
                     addMeasurement(measurementType, t, v)
+                    if measurementType == "gyroscope":
+                        latestGyroTime = t
+                        for f in framesMissingNextGyroTime:
+                            gyroTimeDeltas["next"] = abs(latestGyroTime - gyroTimeDeltas["t"])
+                        framesMissingNextGyroTime.clear()
+
             elif barometer is not None:
                 addMeasurement("barometer", t, barometer["pressureHectopascals"])
+
             elif gnss is not None:
                 gnssData = data["gnss"]
                 if len(gnssData["t"]) > 0:
@@ -124,18 +134,27 @@ def generateReport(args):
                 enu = gnssConverter.enu(gnss["latitude"], gnss["longitude"], gnss["altitude"])
                 gnssData["position"].append([enu[c] for c in "xyz"])
                 gnssData["altitude"].append(gnss["altitude"])
+
             elif frames is not None:
                 for f in frames:
                     if f.get("missingBitmap", False): continue
                     cameras = data['cameras']
                     ind = f["cameraInd"]
                     if cameras.get(ind) is None:
-                        cameras[ind] = {"td": [], "t": [], "features": []}
+                        cameras[ind] = {"td": [], "t": [], "features": [], "gyroTimeDeltas": []}
                     else:
                         diff = t - cameras[ind]["t"][-1]
                         cameras[ind]["td"].append(diff)
                     if "features" in f: cameras[ind]["features"].append(0 if not f["features"] else len(f["features"]))
                     cameras[ind]["t"].append(t)
+                    gyroTimeDeltas = {
+                        "prev": abs(latestGyroTime - t) if latestGyroTime != None else None,
+                        "next": None,
+                        "t": t
+                    }
+                    cameras[ind]["gyroTimeDeltas"].append(gyroTimeDeltas)
+                    framesMissingNextGyroTime.append(gyroTimeDeltas)
+
             elif metrics is not None and 'cpu' in metrics:
                 addMeasurement("cpu", t, metrics['cpu'].get('systemTotalUsagePercent', 0))
                 usedProcessNames = {}  # Track duplicate process names
@@ -148,6 +167,7 @@ def generateReport(args):
                     processData = data['cpu']["processes"].setdefault(uniqueName, {"v": [], "t": []})
                     processData['v'].append(process['usagePercent'])
                     processData['t'].append(t)
+
             elif vioOutput is not None:
                 vio = data["vio"]
                 if len(vio["t"]) > 0:
