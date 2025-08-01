@@ -71,6 +71,29 @@ def plotFrame(
 
     return base64(fig)
 
+
+def plotDiscardedFrames(
+        start,
+        end,
+        data):
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import ScalarFormatter
+
+    fig, ax = plt.subplots(figsize=(8, 2))
+
+    ax.set_title("Discarded frames")
+    ax.vlines(data, ymin=0, ymax=1, colors='red', lw=1)
+    ax.set_xlim(start, end)
+    ax.set_ylim(0, 1)
+    ax.set_xlabel("Time (s)")
+    ax.get_yaxis().set_visible(False)
+    ax.xaxis.set_major_formatter(ScalarFormatter())
+    ax.ticklabel_format(style='plain',axis='x',useOffset=False)
+    fig.tight_layout()
+
+    return base64(fig)
+
+
 class DiagnosisLevel(Enum):
     OK = 0
     WARNING = 1
@@ -209,6 +232,18 @@ class Status:
                 self.__addIssue(DiagnosisLevel.WARNING,
                     f"Found {invalidTimestamps} ({toPercent(invalidTimestamps)}) "
                     "timestamps that don't overlap with IMU")
+
+
+    def analyzeDiscardedFrames(self, start_time, end_time, timestamps):
+        if len(timestamps) == 0: return
+        self.images.append(plotDiscardedFrames(start_time, end_time, timestamps))
+        self.__addIssue(DiagnosisLevel.WARNING,
+            f"Found {len(timestamps)} discarded frames. Typically this happens when disk I/O "
+            f"is too slow and prevents recording frames leading them to be discarded. You can "
+            f"alleviate this issue with larger in-memory buffer when recording using FFMpeg. "
+            f"In <i>vio_config.yaml</i>: <i>ffmpegWriteBufferCapacityMegabytes: 50</i>"
+        )
+
 
     def analyzeArrivalTimes(
             self,
@@ -652,12 +687,17 @@ def diagnoseCamera(data, output):
     sensor = data["cameras"]
     output["cameras"] = []
 
+    start_time = None
+    end_time = None
     for ind in sensor.keys():
         camera = sensor[ind]
         timestamps = np.array(camera["t"])
         deltaTimes = np.array(camera["td"])
 
         if len(timestamps) == 0: continue
+
+        if start_time == None or start_time > timestamps[0]: start_time = timestamps[0]
+        if end_time == None or end_time < timestamps[-1]: end_time = timestamps[-1]
 
         status = Status()
         status.analyzeTimestamps(
@@ -699,6 +739,17 @@ def diagnoseCamera(data, output):
     if len(output["cameras"]) == 0:
         # Camera is required
         output["passed"] = False
+
+    if len(data["discardedFrames"]) > 0:
+        status = Status()
+        status.analyzeDiscardedFrames(start_time, end_time, data["discardedFrames"])
+        output["discardedFrames"] = {
+            "diagnosis": status.diagnosis.toString(),
+            "issues": status.serializeIssues(),
+            "count": len(timestamps),
+            "images": status.images
+        }
+
 
 def diagnoseAccelerometer(data, output):
     ACC_MIN_FREQUENCY_HZ = 50.0

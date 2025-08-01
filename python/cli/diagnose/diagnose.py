@@ -54,7 +54,8 @@ def generateReport(args):
             "velocity": [], # ENU
             "altitude": []  # WGS-84
         }},
-        'cameras': {}
+        'cameras': {},
+        'discardedFrames': []
     }
 
     def addMeasurement(type, t, v):
@@ -88,6 +89,7 @@ def generateReport(args):
             frames = measurement.get("frames")
             metrics = measurement.get("systemMetrics")
             vioOutput = measurement if "status" in measurement else None
+            droppedFrame = measurement.get("droppedFrame")
             if frames is None and 'frame' in measurement:
                 frames = [measurement['frame']]
                 frames[0]['cameraInd'] = 0
@@ -99,7 +101,8 @@ def generateReport(args):
                 and metrics is None
                 and barometer is None
                 and gnss is None
-                and vioOutput is None): continue
+                and vioOutput is None
+                and droppedFrame is None): continue
 
             if startTime is None:
                 startTime = time
@@ -183,6 +186,9 @@ def generateReport(args):
                     vio["global"]["position"].append([enu[c] for c in "xyz"])
                     vio["global"]["velocity"].append([globalPose["velocity"][c] for c in "xyz"])
                     vio["global"]["altitude"].append(wgs84["altitude"])
+
+            elif droppedFrame:
+                data['discardedFrames'].append(time)
 
         if nSkipped > 0: print(f'Skipped {nSkipped} lines')
 

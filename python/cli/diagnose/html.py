@@ -192,6 +192,9 @@ def generateHtml(output, outputHtml):
         for camera in output["cameras"]:
             s += generateSensor(camera, 'Camera #{}'.format(camera["ind"]))
 
+    if output.get("discardedFrames"):
+        s += generateSensor(output.get("discardedFrames"), 'Cameras')
+
     for sensor in SENSOR_NAMES:
         if sensor not in output: continue
         name = sensor.capitalize() if sensor.islower() else sensor
