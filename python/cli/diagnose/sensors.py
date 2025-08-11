@@ -234,9 +234,9 @@ class Status:
                     "timestamps that don't overlap with IMU")
 
 
-    def analyzeDiscardedFrames(self, start_time, end_time, timestamps):
+    def analyzeDiscardedFrames(self, startTime, endTime, timestamps):
         if len(timestamps) == 0: return
-        self.images.append(plotDiscardedFrames(start_time, end_time, timestamps))
+        self.images.append(plotDiscardedFrames(startTime, endTime, timestamps))
         self.__addIssue(DiagnosisLevel.WARNING,
             f"Found {len(timestamps)} discarded frames. Typically this happens when disk I/O "
             f"is too slow and prevents recording frames leading them to be discarded. You can "
@@ -263,7 +263,6 @@ class Status:
 
         total = len(deltaTimes)
         if total == 0: return
-
         medianDeltaTime = np.nanmedian(deltaTimes)
         warningThreshold = min(.5, medianDeltaTime * 4)
         errorThreshold = 1
@@ -299,11 +298,11 @@ class Status:
                     **plotArgs))
 
             self.__addIssue(DiagnosisLevel.ERROR if maxError > errorThreshold else DiagnosisLevel.WARNING,
-                f"Found {badDeltaTimes} {dataName} where the neibhgouring gyroscope samples "
+                f"Found {badDeltaTimes} {dataName} where the neighbouring gyroscope samples "
                 f"have time difference (expected {medianDeltaTime*SECONDS_TO_MILLISECONDS:.1f}ms) "
                 f"larger than {warningThreshold*SECONDS_TO_MILLISECONDS:.1f}ms, up to {maxError*SECONDS_TO_MILLISECONDS:.1f}ms. "
                 f"This indicates that gyroscope and {dataName} for same moment of time are fed "
-                f"large time appart which may lead to data being dropped and higher latency."
+                f"large time apart which may lead to data being dropped and higher latency."
             )
 
     def analyzeSignalDuplicateValues(
@@ -687,8 +686,8 @@ def diagnoseCamera(data, output):
     sensor = data["cameras"]
     output["cameras"] = []
 
-    start_time = None
-    end_time = None
+    startTime = None
+    endTime = None
     for ind in sensor.keys():
         camera = sensor[ind]
         timestamps = np.array(camera["t"])
@@ -696,8 +695,8 @@ def diagnoseCamera(data, output):
 
         if len(timestamps) == 0: continue
 
-        if start_time == None or start_time > timestamps[0]: start_time = timestamps[0]
-        if end_time == None or end_time < timestamps[-1]: end_time = timestamps[-1]
+        if startTime == None or startTime > timestamps[0]: startTime = timestamps[0]
+        if endTime == None or endTime < timestamps[-1]: endTime = timestamps[-1]
 
         status = Status()
         status.analyzeTimestamps(
@@ -742,7 +741,7 @@ def diagnoseCamera(data, output):
 
     if len(data["discardedFrames"]) > 0:
         status = Status()
-        status.analyzeDiscardedFrames(start_time, end_time, data["discardedFrames"])
+        status.analyzeDiscardedFrames(startTime, endTime, data["discardedFrames"])
         output["discardedFrames"] = {
             "diagnosis": status.diagnosis.toString(),
             "issues": status.serializeIssues(),

@@ -122,7 +122,7 @@ def generateReport(args):
                     if measurementType == "gyroscope":
                         latestGyroTime = t
                         for f in framesMissingNextGyroTime:
-                            gyroTimeDeltas["next"] = abs(latestGyroTime - gyroTimeDeltas["t"])
+                            f["next"] = abs(latestGyroTime - f["t"])
                         framesMissingNextGyroTime.clear()
 
             elif barometer is not None:
