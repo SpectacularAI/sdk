@@ -587,18 +587,18 @@ class Status:
 
         plt.subplot(3, 1, 1)
         plt.plot(timestamps, velocity[:, 0], label="VIO")
-        plt.plot(gtTime, gtVelocity[:, 0], label=groundTruth["name"])
+        plt.plot(gtTime, gtVelocity[:, 0], label=groundTruth["name"], color=groundTruth["color"])
         plt.ylabel("East (m/s)")
         plt.legend()
 
         plt.subplot(3, 1, 2)
         plt.plot(timestamps, velocity[:, 1], label="VIO")
-        plt.plot(gtTime, gtVelocity[:, 1], label=groundTruth["name"])
+        plt.plot(gtTime, gtVelocity[:, 1], label=groundTruth["name"], color=groundTruth["color"])
         plt.ylabel("North (m/s)")
 
         plt.subplot(3, 1, 3)
         plt.plot(timestamps, velocity[:, 2], label="VIO (z)")
-        plt.plot(gtTime, gtVelocity[:, 2], label=groundTruth["name"])
+        plt.plot(gtTime, gtVelocity[:, 2], label=groundTruth["name"], color=groundTruth["color"])
         plt.ylabel("Up (m/s)")
 
         fig.suptitle(f"VIO velocity in ENU coordinates")
