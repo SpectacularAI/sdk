@@ -17,6 +17,14 @@ def base64(fig):
     buf.seek(0)
     return base64.b64encode(buf.getvalue()).decode('utf-8')
 
+def getGroundTruths(data):
+    # Preferred ground truth type first.
+    groundTruths = []
+    for field in ["globalGroundTruth", "gnss"]:
+        if len(data[field]["t"]) > 0:
+            groundTruths.append(data[field])
+    return groundTruths
+
 def plotFrame(
         x,
         ys,
@@ -579,18 +587,18 @@ class Status:
 
         plt.subplot(3, 1, 1)
         plt.plot(timestamps, velocity[:, 0], label="VIO")
-        plt.plot(gtTime, gtVelocity[:, 0], label="GNSS")
+        plt.plot(gtTime, gtVelocity[:, 0], label=groundTruth["name"], color=groundTruth["color"])
         plt.ylabel("East (m/s)")
         plt.legend()
 
         plt.subplot(3, 1, 2)
         plt.plot(timestamps, velocity[:, 1], label="VIO")
-        plt.plot(gtTime, gtVelocity[:, 1], label="GNSS")
+        plt.plot(gtTime, gtVelocity[:, 1], label=groundTruth["name"], color=groundTruth["color"])
         plt.ylabel("North (m/s)")
 
         plt.subplot(3, 1, 3)
         plt.plot(timestamps, velocity[:, 2], label="VIO (z)")
-        plt.plot(gtTime, gtVelocity[:, 2], label="GNSS")
+        plt.plot(gtTime, gtVelocity[:, 2], label=groundTruth["name"], color=groundTruth["color"])
         plt.ylabel("Up (m/s)")
 
         fig.suptitle(f"VIO velocity in ENU coordinates")
@@ -603,8 +611,8 @@ class Status:
             altitudeWGS84,
             timestamps,
             trackingStatus,
-            groundTruth):
-        if groundTruth is None:
+            groundTruths):
+        if len(groundTruths) == 0:
             self.images.append(plotFrame(
                 positionENU[:, 0],
                 positionENU[:, 1],
@@ -630,16 +638,16 @@ class Status:
 
         fig, _ = plt.subplots(2, 1, figsize=(8, 6))
 
-        gtPosition = np.array(groundTruth["position"])
-        gtAltitudeWGS84 = np.array(groundTruth["altitude"])
-        gtTime = np.array(groundTruth["t"])
-
         # Get lost tracking indices
         lostIndices = [i for i, status in enumerate(trackingStatus) if status == "LOST_TRACKING"]
 
         ax1 = plt.subplot(2, 1, 1)
         ax1.plot(positionENU[:, 0], positionENU[:, 1], label="VIO")
-        ax1.plot(gtPosition[:, 0], gtPosition[:, 1], label="GNSS")
+
+        for groundTruth in groundTruths:
+            gtTime = np.array(groundTruth["t"])
+            gtPosition = np.array(groundTruth["position"])
+            ax1.plot(gtPosition[:, 0], gtPosition[:, 1], label=groundTruth["name"], color=groundTruth["color"])
 
         # Plot lost tracking points
         if lostIndices:
@@ -656,7 +664,12 @@ class Status:
 
         ax2 = plt.subplot(2, 1, 2)
         ax2.plot(timestamps, altitudeWGS84, label="VIO")
-        ax2.plot(gtTime, gtAltitudeWGS84, label="GNSS")
+
+        for groundTruth in groundTruths:
+            gtTime = np.array(groundTruth["t"])
+            gtAltitudeWGS84 = np.array(groundTruth["altitude"])
+            ax2.plot(gtTime, gtAltitudeWGS84, label=groundTruth["name"], color=groundTruth["color"])
+
         ax2.set_title("VIO altitude in WGS-84 coordinates")
         ax2.set_xlabel("Time (s)")
         ax2.set_ylabel("Altitude (m)")
@@ -994,8 +1007,6 @@ def diagnoseGNSS(data, output):
     sensor = data["gnss"]
     timestamps = np.array(sensor["t"])
     deltaTimes = np.array(sensor["td"])
-    positionEnu = np.array(sensor["position"])
-    altitude = np.array(sensor["altitude"])
 
     if len(timestamps) == 0: return
 
@@ -1011,32 +1022,43 @@ def diagnoseGNSS(data, output):
         },
         allowDataGaps=True,
         isOptionalSensor=True)
-    status.analyzeSignalDuplicateValues(positionEnu)
+    status.analyzeSignalDuplicateValues(np.array(sensor["position"]))
+
+    groundTruths = getGroundTruths(data)
+
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(8, 6))
+    for groundTruth in groundTruths:
+        p = np.array(groundTruth["position"])
+        linestyle = "-" if len(groundTruth["t"]) > 0 else "."
+        ax.plot(p[:, 0], p[:, 1], label=groundTruth["name"], color=groundTruth["color"], linestyle=linestyle)
+    ax.set_title("GNSS position")
+    ax.set_xlabel("East (m)")
+    ax.set_ylabel("North (m)")
+    ax.legend()
+    ax.set_xscale("linear")
+    ax.set_yscale("linear")
+    ax.set_aspect("equal", adjustable="datalim")
+    fig.tight_layout()
+    positionImage = base64(fig)
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    for groundTruth in groundTruths:
+        linestyle = "-" if len(groundTruth["t"]) > 0 else "."
+        ax.plot(groundTruth["t"], groundTruth["altitude"], label=groundTruth["name"], color=groundTruth["color"], linestyle=linestyle)
+    ax.set_title("GNSS altitude (WGS-84)")
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Altitude (m)")
+    ax.legend()
+    fig.tight_layout()
+    altitudeImage = base64(fig)
 
     output["GNSS"] = {
         "diagnosis": status.diagnosis.toString(),
         "issues": status.serializeIssues(),
         "frequency": computeSamplingRate(deltaTimes),
         "count": len(timestamps),
-        "images": [
-            plotFrame(
-                positionEnu[:, 0],
-                positionEnu[:, 1],
-                "GNSS position",
-                xLabel="ENU x (m)",
-                yLabel="ENU y (m)",
-                style='-' if len(timestamps) > 1 else '.',
-                yScale="linear",
-                xScale="linear",
-                equalAxis=True),
-            plotFrame(
-                timestamps,
-                altitude,
-                "GNSS altitude (WGS-84)",
-                xLabel="Time (s)",
-                yLabel="Altitude (m)",
-                style='-' if len(timestamps) > 1 else '.')
-        ] + status.images
+        "images": [positionImage, altitudeImage] + status.images,
     }
     if status.diagnosis == DiagnosisLevel.ERROR:
         output["passed"] = False
@@ -1094,9 +1116,10 @@ def diagnoseVIO(data, output):
 
     images = []
     if hasGlobalOutput:
-        groundTruth =  data["gnss"] # TODO: use groundTruth instead of gnss (if available)
-        if len(groundTruth["t"]) == 0: groundTruth = None
-        status.analyzeVIOPosition(positionENU, altitudeWGS84, timestamps, trackingStatus, groundTruth)
+        groundTruths = getGroundTruths(data)
+        status.analyzeVIOPosition(positionENU, altitudeWGS84, timestamps, trackingStatus, groundTruths)
+
+        groundTruth = groundTruths[0] if len(groundTruths) > 0 else None
         status.analyzeVIOVelocity(velocityENU, timestamps, groundTruth)
     else:
         # TODO: improve relative positioning analysis
