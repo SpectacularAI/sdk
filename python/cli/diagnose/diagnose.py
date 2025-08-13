@@ -44,6 +44,14 @@ def generateReport(args):
         'barometer': {"v": [], "t": [], "td": []},
         'cpu': {"v": [], "t": [], "td": [], "processes": {}},
         'gnss': {
+            "name": "GNSS",
+            "t": [],
+            "td": [],
+            "position": [], # ENU
+            "altitude": []  # WGS-84
+        },
+        'globalGroundTruth': {
+            "name": "Ground truth",
             "t": [],
             "td": [],
             "position": [], # ENU
@@ -85,7 +93,6 @@ def generateReport(args):
             time = measurement.get("time")
             sensor = measurement.get("sensor")
             barometer = measurement.get("barometer")
-            gnss = measurement.get("gps")
             frames = measurement.get("frames")
             metrics = measurement.get("systemMetrics")
             vioOutput = measurement if "status" in measurement else None
@@ -94,6 +101,12 @@ def generateReport(args):
                 frames = [measurement['frame']]
                 frames[0]['cameraInd'] = 0
 
+            gnss = measurement.get("gps")
+            groundTruth = measurement.get("groundTruth")
+            if "pose" in measurement:
+                if measurement["pose"]["name"] == "groundTruth": groundTruth = measurement["pose"]
+                if measurement["pose"]["name"] == "gps": gnss = measurement["pose"]
+
             if time is None: continue
 
             if (sensor is None
@@ -101,6 +114,7 @@ def generateReport(args):
                 and metrics is None
                 and barometer is None
                 and gnss is None
+                and groundTruth is None
                 and vioOutput is None
                 and droppedFrame is None): continue
 
@@ -112,6 +126,16 @@ def generateReport(args):
             if (args.skip is not None and time - startTime < args.skip) or (args.max is not None and time - startTime > args.max):
                 nSkipped += 1
                 continue
+
+            def convertGnss(gnss, gnssData):
+                if len(gnssData["t"]) > 0:
+                    diff = t - gnssData["t"][-1]
+                    gnssData["td"].append(diff)
+                gnssData["t"].append(t)
+                if "latitude" not in gnss: return
+                enu = gnssConverter.enu(gnss["latitude"], gnss["longitude"], gnss["altitude"])
+                gnssData["position"].append([enu[c] for c in "xyz"])
+                gnssData["altitude"].append(gnss["altitude"])
 
             t = time - timeOffset
             if sensor is not None:
@@ -129,14 +153,11 @@ def generateReport(args):
                 addMeasurement("barometer", t, barometer["pressureHectopascals"])
 
             elif gnss is not None:
-                gnssData = data["gnss"]
-                if len(gnssData["t"]) > 0:
-                    diff = t - gnssData["t"][-1]
-                    gnssData["td"].append(diff)
-                gnssData["t"].append(t)
-                enu = gnssConverter.enu(gnss["latitude"], gnss["longitude"], gnss["altitude"])
-                gnssData["position"].append([enu[c] for c in "xyz"])
-                gnssData["altitude"].append(gnss["altitude"])
+                convertGnss(gnss, data["gnss"])
+
+            elif groundTruth is not None:
+                convertGnss(groundTruth, data["globalGroundTruth"])
+                # Should also convert non-GNSS ground truth.
 
             elif frames is not None:
                 for f in frames:
