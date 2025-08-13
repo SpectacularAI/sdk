@@ -17,6 +17,14 @@ def base64(fig):
     buf.seek(0)
     return base64.b64encode(buf.getvalue()).decode('utf-8')
 
+def getGroundTruths(data):
+    # Preferred ground truth type first.
+    groundTruths = []
+    for field in ["globalGroundTruth", "gnss"]:
+        if len(data[field]["t"]) > 0:
+            groundTruths.append(data[field])
+    return groundTruths
+
 def plotFrame(
         x,
         ys,
@@ -999,8 +1007,6 @@ def diagnoseGNSS(data, output):
     sensor = data["gnss"]
     timestamps = np.array(sensor["t"])
     deltaTimes = np.array(sensor["td"])
-    positionEnu = np.array(sensor["position"])
-    altitude = np.array(sensor["altitude"])
 
     if len(timestamps) == 0: return
 
@@ -1016,34 +1022,43 @@ def diagnoseGNSS(data, output):
         },
         allowDataGaps=True,
         isOptionalSensor=True)
-    status.analyzeSignalDuplicateValues(positionEnu)
+    status.analyzeSignalDuplicateValues(np.array(sensor["position"]))
+
+    groundTruths = getGroundTruths(data)
+
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(8, 6))
+    for groundTruth in groundTruths:
+        p = np.array(groundTruth["position"])
+        linestyle = "-" if len(groundTruth["t"]) > 0 else "."
+        ax.plot(p[:, 0], p[:, 1], label=groundTruth["name"], color=groundTruth["color"], linestyle=linestyle)
+    ax.set_title("GNSS position")
+    ax.set_xlabel("East (m)")
+    ax.set_ylabel("North (m)")
+    ax.legend()
+    ax.set_xscale("linear")
+    ax.set_yscale("linear")
+    ax.set_aspect("equal", adjustable="datalim")
+    fig.tight_layout()
+    positionImage = base64(fig)
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    for groundTruth in groundTruths:
+        linestyle = "-" if len(groundTruth["t"]) > 0 else "."
+        ax.plot(groundTruth["t"], groundTruth["altitude"], label=groundTruth["name"], color=groundTruth["color"], linestyle=linestyle)
+    ax.set_title("GNSS altitude (WGS-84)")
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Altitude (m)")
+    ax.legend()
+    fig.tight_layout()
+    altitudeImage = base64(fig)
 
     output["GNSS"] = {
         "diagnosis": status.diagnosis.toString(),
         "issues": status.serializeIssues(),
         "frequency": computeSamplingRate(deltaTimes),
         "count": len(timestamps),
-        "images": [
-            plotFrame(
-                positionEnu[:, 0],
-                positionEnu[:, 1],
-                "GNSS position",
-                xLabel="ENU x (m)",
-                yLabel="ENU y (m)",
-                style='-' if len(timestamps) > 1 else '.',
-                yScale="linear",
-                xScale="linear",
-                color='tab:orange',
-                equalAxis=True),
-            plotFrame(
-                timestamps,
-                altitude,
-                "GNSS altitude (WGS-84)",
-                xLabel="Time (s)",
-                yLabel="Altitude (m)",
-                color='tab:orange',
-                style='-' if len(timestamps) > 1 else '.')
-        ] + status.images
+        "images": [positionImage, altitudeImage] + status.images,
     }
     if status.diagnosis == DiagnosisLevel.ERROR:
         output["passed"] = False
@@ -1101,12 +1116,7 @@ def diagnoseVIO(data, output):
 
     images = []
     if hasGlobalOutput:
-        # Preferred ground truth type first.
-        groundTruths = []
-        for field in ["globalGroundTruth", "gnss"]:
-            if len(data[field]["t"]) > 0:
-                groundTruths.append(data[field])
-
+        groundTruths = getGroundTruths(data)
         status.analyzeVIOPosition(positionENU, altitudeWGS84, timestamps, trackingStatus, groundTruths)
 
         groundTruth = groundTruths[0] if len(groundTruths) > 0 else None
