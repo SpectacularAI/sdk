@@ -45,6 +45,7 @@ def generateReport(args):
         'cpu': {"v": [], "t": [], "td": [], "processes": {}},
         'gnss': {
             "name": "GNSS",
+            "color": "darkred",
             "t": [],
             "td": [],
             "position": [], # ENU
@@ -52,6 +53,7 @@ def generateReport(args):
         },
         'globalGroundTruth': {
             "name": "Ground truth",
+            "color": "tab:orange",
             "t": [],
             "td": [],
             "position": [], # ENU
