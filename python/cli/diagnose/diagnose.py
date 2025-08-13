@@ -105,9 +105,12 @@ def generateReport(args):
 
             gnss = measurement.get("gps")
             groundTruth = measurement.get("groundTruth")
+            externalPose = measurement.get("externalPose")
             if "pose" in measurement:
                 if measurement["pose"]["name"] == "groundTruth": groundTruth = measurement["pose"]
                 if measurement["pose"]["name"] == "gps": gnss = measurement["pose"]
+                if measurement["pose"]["name"] == "externalPose": externalPose = measurement["pose"]
+            if gnss is None: gnss = externalPose
 
             if time is None: continue
 
