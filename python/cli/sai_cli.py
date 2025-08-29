@@ -8,7 +8,20 @@ from .calibrate.calibrate import define_subparser as calibrate_define_subparser
 from .diagnose.diagnose import define_subparser as diagnose_define_subparser
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Spectacular AI command line tool')
+    def get_sdk_version():
+        from importlib.metadata import version, PackageNotFoundError
+        try:
+            return version("spectacularAI")
+        except PackageNotFoundError:
+            return None
+
+    version = get_sdk_version()
+    if version:
+        description = f"Spectacular AI command line tool ({version})"
+    else:
+        description = "Spectacular AI command line tool"
+
+    parser = argparse.ArgumentParser(description=description)
     subparsers = parser.add_subparsers(title='subcommands', dest='subcommand', required=True)
     process_define_subparser(subparsers)
     record_define_subparser(subparsers)
