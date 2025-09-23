@@ -184,7 +184,7 @@ def generateHtml(output, outputHtml):
     if len(output["cameras"]) == 0:
         camera = {
             "diagnosis": "error",
-            "issues": ["Missing camera(s)."],
+            "issues": [{"message": "Missing camera(s).", "diagnosis": "error"}],
             "images": []
         }
         s += generateSensor(camera, "Camera")
