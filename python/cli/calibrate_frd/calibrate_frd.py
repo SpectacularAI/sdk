@@ -16,6 +16,12 @@ hover_point = None
 def define_args(parser):
     parser.add_argument("sdk_recording_path", help="Path to the Spectacular AI SDK recording directory.")
     parser.add_argument(
+        "--index",
+        type=int,
+        default=0,
+        help="Camera index that is used for aligning the forward diretion. Default is 0."
+    )
+    parser.add_argument(
         "--skip_outputs",
         type=int,
         default=0,
@@ -80,16 +86,17 @@ class RayApp:
         self.args = args
         self.vio_output_counter = 0
         self.should_quit = False
+        self.index = args.index
+        with open(os.path.join(args.sdk_recording_path, 'calibration.json')) as f:
+            self.calibration_json = json.load(f)
+        num_cams =  len(self.calibration_json['cameras'])
+        if (self.index >= num_cams): raise Exception(f"Too large camera index {self.index}, must be between 0 and {num_cams - 1} (inclusive).")
         self.replay = spectacularAI.Replay(
             args.sdk_recording_path,
             ignoreFolderConfiguration=True,
-            configuration={'useStereo': False, 'useMagnetometer': False, 'parameterSets': ['no-threads']})
+            configuration={'useStereo': num_cams != 1, 'useMagnetometer': False, 'parameterSets': ['no-threads']})
 
-        with open(os.path.join(args.sdk_recording_path, 'calibration.json')) as f:
-            self.calibration_json = json.load(f)
-
-        assert len(self.calibration_json['cameras']) == 1
-        self.imuToCam = np.array(self.calibration_json['cameras'][0]['imuToCamera'])
+        self.imuToCam = np.array(self.calibration_json['cameras'][args.index]['imuToCamera'])
 
         self.replay.setExtendedOutputCallback(self.on_vio_output)
         self.replay.setPlaybackSpeed(-1)
@@ -99,6 +106,7 @@ class RayApp:
         Callback function that gets called for each VIO output from the replay.
         """
         if self.should_quit:
+            self.replay.close()
             return
 
         self.vio_output_counter += 1
@@ -109,16 +117,12 @@ class RayApp:
                  print(f"Skipped {self.vio_output_counter} outputs...")
             return
 
-        primary_frame = None
-        for frame in frames:
-            if frame.image is not None:
-                primary_frame = frame
-                break
-        if primary_frame is None:
+        frame = frames[self.index]
+        if frame is None:
             print("No frame")
             return
 
-        image = primary_frame.image.toArray()
+        image = frame.image.toArray()
 
         # --- Get Pixel from User Click (with zoom) ---
         zoom_factor = self.args.zoom
