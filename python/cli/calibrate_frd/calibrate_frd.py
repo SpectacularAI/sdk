@@ -9,10 +9,6 @@ import os
 import json
 
 
-clicked_point = None
-hover_point = None
-
-
 def define_args(parser):
     parser.add_argument("sdk_recording_path", help="Path to the Spectacular AI SDK recording directory.")
     parser.add_argument(
@@ -48,15 +44,6 @@ def define_subparser(subparsers):
     sub = subparsers.add_parser('calibrate-frd', help=__doc__.strip())
     sub.set_defaults(func=calibrate_frd)
     return define_args(sub)
-
-
-def mouse_callback(event, x, y, *args, **kwargs):
-    global clicked_point
-    global hover_point
-    if event == cv2.EVENT_LBUTTONDBLCLK:
-        clicked_point = (x, y)
-    elif event == cv2.EVENT_MOUSEMOVE:
-        hover_point = (x, y)
 
 
 def draw_rectigle(img, pixel, color):
@@ -139,13 +126,20 @@ class RayApp:
 
         window_name = "Double-click target. Press SPACE to confirm selection. Use W, A, S, D keys to fine tune target."
         cv2.namedWindow(window_name)
+        clicked_point = None
+        hover_point = None
+        def mouse_callback(event, x, y, *args, **kwargs):
+            nonlocal clicked_point, hover_point
+            if event == cv2.EVENT_LBUTTONDBLCLK:
+                clicked_point = (x, y)
+            elif event == cv2.EVENT_MOUSEMOVE:
+                hover_point = (x, y)
         cv2.setMouseCallback(window_name, mouse_callback)
 
         print("Please double-click on a point in the image to select it. Press SPACE to confirm selection. Use W, A, S, D keys to fine tune target.")
         self.original_point = None
         selected_point = None
         while True:
-            global clicked_point
             temp_img = display_image.copy()
             if hover_point: draw_rectigle(temp_img, hover_point, (0, 20, 225))
             if selected_point: draw_rectigle(temp_img, selected_point, (20, 225, 0))
