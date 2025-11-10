@@ -6,6 +6,7 @@ from .convert.convert import define_subparser as convert_define_subparser
 from .smooth import define_subparser as smooth_define_subparser
 from .calibrate.calibrate import define_subparser as calibrate_define_subparser
 from .diagnose.diagnose import define_subparser as diagnose_define_subparser
+from .calibrate_frd.calibrate_frd import define_subparser as frd_define_subparser
 
 def parse_args():
     def get_sdk_version():
@@ -29,6 +30,7 @@ def parse_args():
     calibrate_define_subparser(subparsers)
     convert_define_subparser(subparsers)
     diagnose_define_subparser(subparsers)
+    frd_define_subparser(subparsers)
     return parser.parse_args()
 
 def main():
