@@ -133,11 +133,11 @@ def generateReport(args):
                 continue
 
             def convertGnss(gnss, gnssData):
+                if "latitude" not in gnss: return
                 if len(gnssData["t"]) > 0:
                     diff = t - gnssData["t"][-1]
                     gnssData["td"].append(diff)
                 gnssData["t"].append(t)
-                if "latitude" not in gnss: return
                 enu = gnssConverter.enu(gnss["latitude"], gnss["longitude"], gnss["altitude"])
                 gnssData["position"].append([enu[c] for c in "xyz"])
                 gnssData["altitude"].append(gnss["altitude"])
