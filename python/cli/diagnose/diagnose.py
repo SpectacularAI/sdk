@@ -218,14 +218,22 @@ def generateReport(args):
 
         if nSkipped > 0: print(f'Skipped {nSkipped} lines')
 
-    diagnoseCamera(data, output)
-    diagnoseAccelerometer(data, output)
-    diagnoseGyroscope(data, output)
-    diagnoseMagnetometer(data, output)
-    diagnoseBarometer(data, output)
-    diagnoseGNSS(data, output)
-    diagnoseCPU(data, output)
-    diagnoseVIO(data, output)
+    diagnostics = [
+        diagnoseCamera,
+        diagnoseAccelerometer,
+        diagnoseGyroscope,
+        diagnoseMagnetometer,
+        diagnoseBarometer,
+        diagnoseGNSS,
+        diagnoseCPU,
+        diagnoseVIO,
+    ]
+
+    for func in diagnostics:
+        try:
+            func(data, output)
+        except Exception as e:
+            print(f"ERROR: {func.__name__}: {e}")
 
     if os.path.dirname(args.output_html):
         os.makedirs(os.path.dirname(args.output_html), exist_ok=True)
