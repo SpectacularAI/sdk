@@ -1030,8 +1030,14 @@ def diagnoseGNSS(data, output):
     fig, ax = plt.subplots(figsize=(8, 6))
     for groundTruth in groundTruths:
         p = np.array(groundTruth["position"])
-        linestyle = "-" if len(groundTruth["t"]) > 0 else "."
-        ax.plot(p[:, 0], p[:, 1], label=groundTruth["name"], color=groundTruth["color"], linestyle=linestyle)
+        marker = "." if len(groundTruth["t"]) == 1 else ""
+        ax.plot(
+            p[:, 0],
+            p[:, 1],
+            label=groundTruth["name"],
+            color=groundTruth["color"],
+            linestyle="-",
+            marker=marker)
     ax.set_title("GNSS position")
     ax.set_xlabel("East (m)")
     ax.set_ylabel("North (m)")
@@ -1044,8 +1050,14 @@ def diagnoseGNSS(data, output):
 
     fig, ax = plt.subplots(figsize=(8, 6))
     for groundTruth in groundTruths:
-        linestyle = "-" if len(groundTruth["t"]) > 0 else "."
-        ax.plot(groundTruth["t"], groundTruth["altitude"], label=groundTruth["name"], color=groundTruth["color"], linestyle=linestyle)
+        marker = "." if len(groundTruth["t"]) == 1 else ""
+        ax.plot(
+            groundTruth["t"],
+            groundTruth["altitude"],
+            label=groundTruth["name"],
+            color=groundTruth["color"],
+            linestyle="-",
+            marker=marker)
     ax.set_title("GNSS altitude (WGS-84)")
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Altitude (m)")
