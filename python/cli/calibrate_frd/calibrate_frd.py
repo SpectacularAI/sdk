@@ -190,7 +190,7 @@ class RayApp:
 
             self.frd = np.eye(4)
             self.frd[:3,:3] = np.hstack([v[:, np.newaxis] / np.linalg.norm(v) for v in [forwardVectorImu, rightVectorImu, downVectorImu]]).transpose()
-            self.rayImu = self.frd[:3, 0]
+            self.rayImu = self.frd[0, :3]
 
         self.displayResults()
 
