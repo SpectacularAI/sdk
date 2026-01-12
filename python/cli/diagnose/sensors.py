@@ -480,27 +480,38 @@ class Status:
 
         if temperature is None: return
 
-        minTemp = np.nanmin(np.abs(temperature))
-        maxTemp = np.nanmax(np.abs(temperature))
+        minTemp = np.nanmin(temperature)
+        maxTemp = np.nanmax(temperature)
 
-        BARO_UNIT_CHECK_MIN_THRESHOLD_CELCIUS = -30
-        BARO_UNIT_CHECK_MIN_THRESHOLD_KELVINS = BARO_UNIT_CHECK_MIN_THRESHOLD_CELCIUS + CELCIUS_TO_KELVIN
-        if minTemp < BARO_UNIT_CHECK_MIN_THRESHOLD_KELVINS:
-            self.__addIssue(DiagnosisLevel.ERROR,
+        def temperatureUnitCheck(thresholdKelvins, severityLevel):
+            thresholdCelcius = thresholdKelvins + KELVIN_TO_CELCIUS
+            self.__addIssue(severityLevel,
                 "Barometer temperature has values below threshold "
-                f"{BARO_UNIT_CHECK_MIN_THRESHOLD_KELVINS:.1f}K ({BARO_UNIT_CHECK_MIN_THRESHOLD_CELCIUS}°C). "
+                f"{thresholdKelvins:.1f}K ({thresholdCelcius}°C). "
                 f"Please verify measurement unit is Kelvins."
             )
 
-        AIR_TEMPERATURE_WARN_THRESHOLD_CELCIUS = 30
-        AIR_TEMPERATURE_WARN_THRESHOLD_KELVINS = AIR_TEMPERATURE_WARN_THRESHOLD_CELCIUS + CELCIUS_TO_KELVIN
-        if maxTemp > AIR_TEMPERATURE_WARN_THRESHOLD_KELVINS:
-            self.__addIssue(
-                DiagnosisLevel.WARNING,
+        BARO_UNIT_CHECK_ERROR_THRESHOLD_KELVINS = -60 + CELCIUS_TO_KELVIN
+        BARO_UNIT_CHECK_WARNING_THRESHOLD_KELVINS = -30 + CELCIUS_TO_KELVIN
+        if minTemp < BARO_UNIT_CHECK_ERROR_THRESHOLD_KELVINS:
+            temperatureUnitCheck(BARO_UNIT_CHECK_ERROR_THRESHOLD_KELVINS, DiagnosisLevel.ERROR)
+        elif minTemp < BARO_UNIT_CHECK_WARNING_THRESHOLD_KELVINS:
+            temperatureUnitCheck(BARO_UNIT_CHECK_WARNING_THRESHOLD_KELVINS, DiagnosisLevel.WARNING)
+
+        def temperatureHighCheck(thresholdKelvins, severityLevel):
+            thresholdCelcius = thresholdKelvins + KELVIN_TO_CELCIUS
+            self.__addIssue(severityLevel,
                 "Barometer temperature measurements have high values above "
-                f"{AIR_TEMPERATURE_WARN_THRESHOLD_KELVINS:.1f}K ({AIR_TEMPERATURE_WARN_THRESHOLD_CELCIUS}°C). "
+                f"{thresholdKelvins:.1f}K ({thresholdCelcius}°C). "
                 "This may indicate that the barometer temperature measurement are not measuring air temperature."
             )
+
+        AIR_TEMPERATURE_ERROR_THRESHOLD_KELVINS = 60 + CELCIUS_TO_KELVIN
+        AIR_TEMPERATURE_WARN_THRESHOLD_KELVINS = 40 + CELCIUS_TO_KELVIN
+        if maxTemp > AIR_TEMPERATURE_ERROR_THRESHOLD_KELVINS:
+            temperatureHighCheck(AIR_TEMPERATURE_ERROR_THRESHOLD_KELVINS, DiagnosisLevel.ERROR)
+        elif maxTemp > AIR_TEMPERATURE_WARN_THRESHOLD_KELVINS:
+            temperatureHighCheck(AIR_TEMPERATURE_WARN_THRESHOLD_KELVINS, DiagnosisLevel.WARNING)
 
         AIR_TEMPERATURE_DELTA_THRESHOLD = 10
         if maxTemp - minTemp > AIR_TEMPERATURE_DELTA_THRESHOLD:
