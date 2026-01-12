@@ -12,9 +12,11 @@ SIGNAL_PLOT_KWARGS = {
 def base64(fig):
     import io
     import base64
+    import matplotlib.pyplot as plt
     buf = io.BytesIO()
     fig.savefig(buf, format='png')
     buf.seek(0)
+    plt.close(fig)
     return base64.b64encode(buf.getvalue()).decode('utf-8')
 
 def getGroundTruths(data):
@@ -79,7 +81,6 @@ def plotFrame(
 
     return base64(fig)
 
-
 def plotDiscardedFrames(
         start,
         end,
@@ -100,7 +101,6 @@ def plotDiscardedFrames(
     fig.tight_layout()
 
     return base64(fig)
-
 
 class DiagnosisLevel(Enum):
     OK = 0
