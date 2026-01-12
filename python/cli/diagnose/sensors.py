@@ -486,7 +486,7 @@ class Status:
         def temperatureUnitCheck(thresholdKelvins, severityLevel):
             thresholdCelcius = thresholdKelvins + KELVIN_TO_CELCIUS
             self.__addIssue(severityLevel,
-                "Barometer temperature has values below threshold "
+                "Barometer temperature measurements have values below threshold "
                 f"{thresholdKelvins:.1f}K ({thresholdCelcius}°C). "
                 f"Please verify measurement unit is Kelvins."
             )
@@ -501,9 +501,9 @@ class Status:
         def temperatureHighCheck(thresholdKelvins, severityLevel):
             thresholdCelcius = thresholdKelvins + KELVIN_TO_CELCIUS
             self.__addIssue(severityLevel,
-                "Barometer temperature measurements have high values above "
+                "Barometer temperature measurements have high values above threshold "
                 f"{thresholdKelvins:.1f}K ({thresholdCelcius}°C). "
-                "This may indicate that the barometer temperature measurement are not measuring air temperature."
+                "This may indicate that the barometer temperature measurements are not measuring air temperature."
             )
 
         AIR_TEMPERATURE_ERROR_THRESHOLD_KELVINS = 60 + CELCIUS_TO_KELVIN
@@ -519,7 +519,7 @@ class Status:
                 DiagnosisLevel.WARNING,
                 "Barometer temperature measurements changed over "
                 f"{AIR_TEMPERATURE_DELTA_THRESHOLD:.1f}K over the dataset. "
-                "This may indicate that the barometer temperature measurement are not measuring air temperature."
+                "This may indicate that the barometer temperature measurements are not measuring air temperature."
             )
 
         self.images.append(plotFrame(
