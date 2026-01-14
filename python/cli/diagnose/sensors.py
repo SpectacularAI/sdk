@@ -470,13 +470,51 @@ class Status:
                 "This suggests the signal may be missing gravitational acceleration."
             )
 
-    def analyzeBarometerSignal(self, pressure, temperature, timestamps):
+    def analyzeBarometerSignal(self, pressure, temperature, timestamps, data):
         self.images.append(plotFrame(
+            timestamps,
+            pressure,
+            "Barometer signal",
+            yLabel="Pressure (hPa)",
+            **SIGNAL_PLOT_KWARGS))
+
+        if temperature is not None:
+            self.images.append(plotFrame(
                 timestamps,
-                pressure,
-                "Barometer signal",
-                yLabel="Pressure (hPa)",
+                temperature + KELVIN_TO_CELCIUS, # Plot in °C
+                "Air temperature",
+                yLabel="Temperature (°C)",
                 **SIGNAL_PLOT_KWARGS))
+
+        groundTruths = getGroundTruths(data)
+        if len(groundTruths) > 0:
+            import matplotlib.pyplot as plt
+            fig, ax1 = plt.subplots(figsize=(8, 6))
+            ax2 = ax1.twinx()
+
+            # https://en.wikipedia.org/wiki/Pressure_altitude
+            # p = 1013.25 * (1 - h / 44330.694) ** 5.255 (hPa)
+            altitude = 44330.694 * (1 - (pressure / 1013.25) ** (1 / 5.255))
+            ax1.plot(timestamps, altitude, label="Barometer altitude")
+
+            for groundTruth in groundTruths:
+                marker = "." if len(groundTruth["t"]) == 1 else ""
+                ax2.plot(
+                    groundTruth["t"],
+                    groundTruth["altitude"],
+                    label=groundTruth["name"],
+                    color=groundTruth["color"],
+                    linestyle="-",
+                    marker=marker)
+
+            ax1.set_xlabel("Time")
+            ax1.set_ylabel("Standard pressure altitude (m)")
+            ax1.set_title("Standard pressure altitude and GNSS altitude")
+            ax1.legend()
+            ax2.set_ylabel("GNSS altitude (m)")
+            ax2.legend()
+            fig.tight_layout()
+            self.images.append(base64(fig))
 
         if temperature is None: return
 
@@ -521,13 +559,6 @@ class Status:
                 f"{AIR_TEMPERATURE_DELTA_THRESHOLD:.1f}K over the dataset. "
                 "This may indicate that the barometer temperature measurements are not measuring air temperature."
             )
-
-        self.images.append(plotFrame(
-            timestamps,
-            temperature + KELVIN_TO_CELCIUS, # Plot in °C
-            "Air temperature",
-            yLabel="Temperature (°C)",
-            **SIGNAL_PLOT_KWARGS))
 
     def analyzeCpuUsage(self, signal, timestamps, processes):
         CPU_USAGE_THRESHOLD = 90.0
@@ -1046,7 +1077,7 @@ def diagnoseBarometer(data, output):
         BARO_PRESSURE_UNIT_CHECK_MIN_THRESHOLD,
         BARO_PRESSURE_UNIT_CHECK_MAX_THRESHOLD)
 
-    status.analyzeBarometerSignal(pressure, temperature, timestamps)
+    status.analyzeBarometerSignal(pressure, temperature, timestamps, data)
 
     output["barometer"] = {
         "diagnosis": status.diagnosis.toString(),
