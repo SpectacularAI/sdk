@@ -24,6 +24,7 @@ def define_subparser(subparsers):
     return define_args(sub)
 
 def generateReport(args):
+    import numpy as np
     from datetime import datetime
 
     datasetPath = args.dataset_path
@@ -41,7 +42,12 @@ def generateReport(args):
         'accelerometer': {"v": [], "t": [], "td": []},
         'gyroscope': {"v": [], "t": [], "td": []},
         'magnetometer': {"v": [], "t": [], "td": []},
-        'barometer': {"v": [], "t": [], "td": []},
+        'barometer': {
+            "t": [],
+            "td": [],
+            "pressure": [], # Hectopascals
+            "temperature": []  # Kelvins (optional)
+        },
         'cpu': {"v": [], "t": [], "td": [], "processes": {}},
         'gnss': {
             "name": "GNSS",
@@ -155,7 +161,13 @@ def generateReport(args):
                         framesMissingNextGyroTime.clear()
 
             elif barometer is not None:
-                addMeasurement("barometer", t, barometer["pressureHectopascals"])
+                barometerData = data["barometer"]
+                barometerData["pressure"].append(barometer["pressureHectopascals"])
+                barometerData["temperature"].append(barometer.get("temperatureKelvins", np.nan))
+                if len(barometerData["t"]) > 0:
+                    diff = t - barometerData["t"][-1]
+                    barometerData["td"].append(diff)
+                barometerData["t"].append(t)
 
             elif gnss is not None:
                 convertGnss(gnss, data["gnss"])

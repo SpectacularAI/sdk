@@ -2,6 +2,8 @@ import numpy as np
 from enum import Enum
 
 SECONDS_TO_MILLISECONDS = 1e3
+CELCIUS_TO_KELVIN = 273.15
+KELVIN_TO_CELCIUS = -CELCIUS_TO_KELVIN
 TO_PERCENT = 100.0
 
 SIGNAL_PLOT_KWARGS = {
@@ -466,6 +468,96 @@ class Status:
             self.__addIssue(DiagnosisLevel.ERROR,
                 f"Mean accelerometer magnitude {mean:.1f} is below the expected threshold ({ACC_NORM_THRESHOLD:.1f}). "
                 "This suggests the signal may be missing gravitational acceleration."
+            )
+
+    def analyzeBarometerSignal(self, pressure, temperature, timestamps, data):
+        self.images.append(plotFrame(
+            timestamps,
+            pressure,
+            "Barometer signal",
+            yLabel="Pressure (hPa)",
+            **SIGNAL_PLOT_KWARGS))
+
+        if temperature is not None:
+            self.images.append(plotFrame(
+                timestamps,
+                temperature + KELVIN_TO_CELCIUS, # Plot in °C
+                "Air temperature",
+                yLabel="Temperature (°C)",
+                **SIGNAL_PLOT_KWARGS))
+
+        groundTruths = getGroundTruths(data)
+        if len(groundTruths) > 0:
+            import matplotlib.pyplot as plt
+            fig, ax1 = plt.subplots(figsize=(8, 6))
+            ax2 = ax1.twinx()
+
+            # https://en.wikipedia.org/wiki/Pressure_altitude
+            # p = 1013.25 * (1 - h / 44330.694) ** 5.255 (hPa)
+            altitude = 44330.694 * (1 - (pressure / 1013.25) ** (1 / 5.255))
+            ax1.plot(timestamps, altitude, label="Barometer altitude")
+
+            for groundTruth in groundTruths:
+                marker = "." if len(groundTruth["t"]) == 1 else ""
+                ax2.plot(
+                    groundTruth["t"],
+                    groundTruth["altitude"],
+                    label=groundTruth["name"],
+                    color=groundTruth["color"],
+                    linestyle="-",
+                    marker=marker)
+
+            ax1.set_xlabel("Time")
+            ax1.set_ylabel("Standard pressure altitude (m)")
+            ax1.set_title("Standard pressure altitude and GNSS altitude")
+            ax1.legend()
+            ax2.set_ylabel("GNSS altitude (m)")
+            ax2.legend()
+            fig.tight_layout()
+            self.images.append(base64(fig))
+
+        if temperature is None: return
+
+        minTemp = np.nanmin(temperature)
+        maxTemp = np.nanmax(temperature)
+
+        def temperatureUnitCheck(thresholdKelvins, severityLevel):
+            thresholdCelcius = thresholdKelvins + KELVIN_TO_CELCIUS
+            self.__addIssue(severityLevel,
+                "Barometer temperature measurements have values below threshold "
+                f"{thresholdKelvins:.1f}K ({thresholdCelcius}°C). "
+                f"Please verify measurement unit is Kelvins."
+            )
+
+        BARO_UNIT_CHECK_ERROR_THRESHOLD_KELVINS = -60 + CELCIUS_TO_KELVIN
+        BARO_UNIT_CHECK_WARNING_THRESHOLD_KELVINS = -30 + CELCIUS_TO_KELVIN
+        if minTemp < BARO_UNIT_CHECK_ERROR_THRESHOLD_KELVINS:
+            temperatureUnitCheck(BARO_UNIT_CHECK_ERROR_THRESHOLD_KELVINS, DiagnosisLevel.ERROR)
+        elif minTemp < BARO_UNIT_CHECK_WARNING_THRESHOLD_KELVINS:
+            temperatureUnitCheck(BARO_UNIT_CHECK_WARNING_THRESHOLD_KELVINS, DiagnosisLevel.WARNING)
+
+        def temperatureHighCheck(thresholdKelvins, severityLevel):
+            thresholdCelcius = thresholdKelvins + KELVIN_TO_CELCIUS
+            self.__addIssue(severityLevel,
+                "Barometer temperature measurements have high values above threshold "
+                f"{thresholdKelvins:.1f}K ({thresholdCelcius}°C). "
+                "This may indicate that the barometer temperature measurements are not measuring air temperature."
+            )
+
+        AIR_TEMPERATURE_ERROR_THRESHOLD_KELVINS = 60 + CELCIUS_TO_KELVIN
+        AIR_TEMPERATURE_WARN_THRESHOLD_KELVINS = 40 + CELCIUS_TO_KELVIN
+        if maxTemp > AIR_TEMPERATURE_ERROR_THRESHOLD_KELVINS:
+            temperatureHighCheck(AIR_TEMPERATURE_ERROR_THRESHOLD_KELVINS, DiagnosisLevel.ERROR)
+        elif maxTemp > AIR_TEMPERATURE_WARN_THRESHOLD_KELVINS:
+            temperatureHighCheck(AIR_TEMPERATURE_WARN_THRESHOLD_KELVINS, DiagnosisLevel.WARNING)
+
+        AIR_TEMPERATURE_DELTA_THRESHOLD = 10
+        if maxTemp - minTemp > AIR_TEMPERATURE_DELTA_THRESHOLD:
+            self.__addIssue(
+                DiagnosisLevel.WARNING,
+                "Barometer temperature measurements changed over "
+                f"{AIR_TEMPERATURE_DELTA_THRESHOLD:.1f}K over the dataset. "
+                "This may indicate that the barometer temperature measurements are not measuring air temperature."
             )
 
     def analyzeCpuUsage(self, signal, timestamps, processes):
@@ -953,13 +1045,15 @@ def diagnoseBarometer(data, output):
     BARO_MIN_FREQUENCY_HZ = 1.0
     BARO_MAX_FREQUENCY_HZ = 1e3
     BARO_DUPLICATE_VALUE_THRESHOLD = 0.2
-    BARO_UNIT_CHECK_MIN_THRESHOLD = 800 # hPa
-    BARO_UNIT_CHECK_MAX_THRESHOLD = 1200 # hPa
+    BARO_PRESSURE_UNIT_CHECK_MIN_THRESHOLD = 800 # hPa
+    BARO_PRESSURE_UNIT_CHECK_MAX_THRESHOLD = 1200 # hPa
 
     sensor = data["barometer"]
     timestamps = np.array(sensor["t"])
     deltaTimes = np.array(sensor["td"])
-    signal = np.array(sensor['v'])
+    pressure = np.array(sensor["pressure"])
+    temperature = np.array(sensor["temperature"])
+    if np.all(np.isnan(temperature)): temperature = None
 
     if len(timestamps) == 0: return
 
@@ -974,28 +1068,23 @@ def diagnoseBarometer(data, output):
             "title": "Barometer time diff"
         },
         isOptionalSensor=True)
-    status.analyzeSignalDuplicateValues(signal, BARO_DUPLICATE_VALUE_THRESHOLD)
+    status.analyzeSignalDuplicateValues(pressure, BARO_DUPLICATE_VALUE_THRESHOLD)
     status.analyzeSignalUnit(
-        signal,
+        pressure,
         timestamps,
         "hPa",
         "Barometer",
-        BARO_UNIT_CHECK_MIN_THRESHOLD,
-        BARO_UNIT_CHECK_MAX_THRESHOLD)
+        BARO_PRESSURE_UNIT_CHECK_MIN_THRESHOLD,
+        BARO_PRESSURE_UNIT_CHECK_MAX_THRESHOLD)
+
+    status.analyzeBarometerSignal(pressure, temperature, timestamps, data)
 
     output["barometer"] = {
         "diagnosis": status.diagnosis.toString(),
         "issues": status.serializeIssues(),
         "frequency": computeSamplingRate(deltaTimes),
         "count": len(timestamps),
-        "images": [
-            plotFrame(
-                timestamps,
-                signal,
-                "Barometer signal",
-                yLabel="Pressure (hPa)",
-                **SIGNAL_PLOT_KWARGS)
-        ] + status.images
+        "images": status.images
     }
     if status.diagnosis == DiagnosisLevel.ERROR:
         output["passed"] = False
