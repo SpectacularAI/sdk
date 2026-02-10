@@ -229,20 +229,24 @@ class Status:
 
         # Check that timestamps overlap with IMU timestamps
         if len(imuTimestamps) > 0:
-            t0 = np.min(imuTimestamps)
-            t1 = np.max(imuTimestamps)
+            WARNING_THRESHOLD_SECONDS = 5.0
+            ERROR_THRESHOLD_SECONDS = 30.0
 
-            invalidTimestamps = 0
-            for ts in timestamps:
-                if ts < t0 or ts > t1:
-                    invalidTimestamps += 1
+            if timestamps[0] < imuTimestamps[0] - WARNING_THRESHOLD_SECONDS:
+                offset = imuTimestamps[0] - timestamps[0]
+                self.__addIssue(DiagnosisLevel.ERROR if offset > ERROR_THRESHOLD_SECONDS else DiagnosisLevel.WARNING,
+                    f"Signal starts {offset:.1f}s before IMU signal. "
+                    "This indicates that there could be "
+                    "a time offset between the sensor and IMU clocks or " \
+                    "the sensor was started much earlier than IMU.")
 
-            MIN_OVERLAP = 0.99
-            if MIN_OVERLAP * total < invalidTimestamps:
-                self.__addIssue(DiagnosisLevel.WARNING,
-                    f"Found {invalidTimestamps} ({toPercent(invalidTimestamps)}) "
-                    "timestamps that don't overlap with IMU")
-
+            if timestamps[-1] > imuTimestamps[-1] + WARNING_THRESHOLD_SECONDS:
+                offset = timestamps[-1] - imuTimestamps[-1]
+                self.__addIssue(DiagnosisLevel.ERROR if offset > ERROR_THRESHOLD_SECONDS else DiagnosisLevel.WARNING,
+                    f"Signal ends {offset:.1f}s after IMU signal. "
+                    "This indicates that there could be "
+                    "a time offset between the sensor and IMU clocks or " \
+                    "the sensor was stopped much later than IMU.")
 
     def analyzeDiscardedFrames(self, startTime, endTime, timestamps):
         if len(timestamps) == 0: return
