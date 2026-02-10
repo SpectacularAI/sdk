@@ -486,33 +486,54 @@ class Status:
                 yLabel="Temperature (°C)",
                 **SIGNAL_PLOT_KWARGS))
 
+        # Plot pressure altitude
+        # https://en.wikipedia.org/wiki/Pressure_altitude
+        # p = 1013.25 * (1 - h / 44330.694) ** 5.255 (hPa)
+        pressureAltitude = 44330.694 * (1 - (pressure / 1013.25) ** (1 / 5.255))
         groundTruths = getGroundTruths(data)
-        if len(groundTruths) > 0:
+
+        if len(groundTruths) == 0:
+            self.images.append(plotFrame(
+                timestamps,
+                pressureAltitude,
+                "Pressure altitude",
+                yLabel="Altitude (m)",
+                **SIGNAL_PLOT_KWARGS))
+        else:
             import matplotlib.pyplot as plt
             fig, ax1 = plt.subplots(figsize=(8, 6))
             ax2 = ax1.twinx()
 
-            # https://en.wikipedia.org/wiki/Pressure_altitude
-            # p = 1013.25 * (1 - h / 44330.694) ** 5.255 (hPa)
-            altitude = 44330.694 * (1 - (pressure / 1013.25) ** (1 / 5.255))
-            ax1.plot(timestamps, altitude, label="Barometer altitude")
+            # Capture the lines from both ax1 and ax2 to merge them into the single legend
+            # to avoid overlapping legends with twinx
+            lines = []
+            lines.extend(ax1.plot(timestamps, pressureAltitude, label="Barometer"))
 
             for groundTruth in groundTruths:
                 marker = "." if len(groundTruth["t"]) == 1 else ""
-                ax2.plot(
+                lines.extend(ax2.plot(
                     groundTruth["t"],
                     groundTruth["altitude"],
                     label=groundTruth["name"],
                     color=groundTruth["color"],
                     linestyle="-",
-                    marker=marker)
+                    marker=marker))
+
+            # Use same scale factor for both axes
+            y1_min, y1_max = ax1.get_ylim()
+            y2_min, y2_max = ax2.get_ylim()
+            y1_len = y1_max - y1_min
+            y2_len = y2_max - y2_min
+            y_len = max(y1_len, y2_len)
+            ax1.set_ylim(y1_min, y1_min + y_len)
+            ax2.set_ylim(y2_min, y2_min + y_len)
 
             ax1.set_xlabel("Time")
-            ax1.set_ylabel("Standard pressure altitude (m)")
-            ax1.set_title("Standard pressure altitude and GNSS altitude")
-            ax1.legend()
-            ax2.set_ylabel("GNSS altitude (m)")
-            ax2.legend()
+            ax1.set_ylabel("Barometer, pressure altitude (m)")
+            ax1.set_title("Pressure altitude and GNSS altitude")
+            ax1.legend(lines, [l.get_label() for l in lines], loc='best')
+            ax2.set_ylabel("GNSS altitude, WGS-84 (m)")
+
             fig.tight_layout()
             self.images.append(base64(fig))
 
