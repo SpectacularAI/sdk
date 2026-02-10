@@ -1127,7 +1127,7 @@ def diagnoseGNSS(data, output):
             color=groundTruth["color"],
             linestyle="-",
             marker=marker)
-    ax.set_title("GNSS position")
+    ax.set_title("GNSS position in ENU coordinates")
     ax.set_xlabel("East (m)")
     ax.set_ylabel("North (m)")
     ax.legend()
@@ -1147,7 +1147,7 @@ def diagnoseGNSS(data, output):
             color=groundTruth["color"],
             linestyle="-",
             marker=marker)
-    ax.set_title("GNSS altitude (WGS-84)")
+    ax.set_title("GNSS altitude in WGS-84 coordinates")
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Altitude (m)")
     ax.legend()
