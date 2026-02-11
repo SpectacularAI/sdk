@@ -227,22 +227,25 @@ class Status:
                 f"Maximum allowed frequency is {maxFrequencyHz:.1f}Hz but data is {frequency:.1f}Hz"
             )
 
-        # Check that timestamps overlap with IMU timestamps
-        if len(imuTimestamps) > 0:
-            t0 = np.min(imuTimestamps)
-            t1 = np.max(imuTimestamps)
+        # Check that timestamps start and stop around same time as IMU timestamps
+        if len(imuTimestamps) > 0 and not allowDataGaps:
+            THRESHOLD_SECONDS = 5.0
 
-            invalidTimestamps = 0
-            for ts in timestamps:
-                if ts < t0 or ts > t1:
-                    invalidTimestamps += 1
-
-            MIN_OVERLAP = 0.99
-            if MIN_OVERLAP * total < invalidTimestamps:
+            if abs(imuTimestamps[0] - timestamps[0]) > THRESHOLD_SECONDS:
+                offset = imuTimestamps[0] - timestamps[0]
+                beforeOrAfter = "before" if offset > 0 else "after"
                 self.__addIssue(DiagnosisLevel.WARNING,
-                    f"Found {invalidTimestamps} ({toPercent(invalidTimestamps)}) "
-                    "timestamps that don't overlap with IMU")
+                    f"Signal starts {offset:.1f}s {beforeOrAfter} IMU signal. "
+                    "This indicates that either the sensor was started much earlier than IMU "
+                    "or there could be a time offset between the sensor and IMU clocks.")
 
+            if abs(imuTimestamps[-1] - timestamps[-1]) > THRESHOLD_SECONDS:
+                offset = imuTimestamps[-1] - timestamps[-1]
+                beforeOrAfter = "before" if offset > 0 else "after"
+                self.__addIssue(DiagnosisLevel.WARNING,
+                    f"Signal ends {offset:.1f}s {beforeOrAfter} IMU signal. "
+                    "This indicates that either the sensor was stopped much later than IMU "
+                    "or there could be a time offset between the sensor and IMU clocks.")
 
     def analyzeDiscardedFrames(self, startTime, endTime, timestamps):
         if len(timestamps) == 0: return
