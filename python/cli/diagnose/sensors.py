@@ -227,26 +227,25 @@ class Status:
                 f"Maximum allowed frequency is {maxFrequencyHz:.1f}Hz but data is {frequency:.1f}Hz"
             )
 
-        # Check that timestamps overlap with IMU timestamps
-        if len(imuTimestamps) > 0:
-            WARNING_THRESHOLD_SECONDS = 5.0
-            ERROR_THRESHOLD_SECONDS = 30.0
+        # Check that timestamps start and stop around same time as IMU timestamps
+        if len(imuTimestamps) > 0 and not allowDataGaps:
+            THRESHOLD_SECONDS = 5.0
 
-            if timestamps[0] < imuTimestamps[0] - WARNING_THRESHOLD_SECONDS:
+            if abs(imuTimestamps[0] - timestamps[0]) > THRESHOLD_SECONDS:
                 offset = imuTimestamps[0] - timestamps[0]
-                self.__addIssue(DiagnosisLevel.ERROR if offset > ERROR_THRESHOLD_SECONDS else DiagnosisLevel.WARNING,
-                    f"Signal starts {offset:.1f}s before IMU signal. "
-                    "This indicates that there could be "
-                    "a time offset between the sensor and IMU clocks or " \
-                    "the sensor was started much earlier than IMU.")
+                beforeOrAfter = "before" if offset > 0 else "after"
+                self.__addIssue(DiagnosisLevel.WARNING,
+                    f"Signal starts {offset:.1f}s {beforeOrAfter} IMU signal. "
+                    "This indicates that either the sensor was started much earlier than IMU "
+                    "or there could be a time offset between the sensor and IMU clocks.")
 
-            if timestamps[-1] > imuTimestamps[-1] + WARNING_THRESHOLD_SECONDS:
-                offset = timestamps[-1] - imuTimestamps[-1]
-                self.__addIssue(DiagnosisLevel.ERROR if offset > ERROR_THRESHOLD_SECONDS else DiagnosisLevel.WARNING,
-                    f"Signal ends {offset:.1f}s after IMU signal. "
-                    "This indicates that there could be "
-                    "a time offset between the sensor and IMU clocks or " \
-                    "the sensor was stopped much later than IMU.")
+            if abs(imuTimestamps[-1] - timestamps[-1]) > THRESHOLD_SECONDS:
+                offset = imuTimestamps[-1] - timestamps[-1]
+                beforeOrAfter = "before" if offset > 0 else "after"
+                self.__addIssue(DiagnosisLevel.WARNING,
+                    f"Signal ends {offset:.1f}s {beforeOrAfter} IMU signal. "
+                    "This indicates that either the sensor was stopped much later than IMU "
+                    "or there could be a time offset between the sensor and IMU clocks.")
 
     def analyzeDiscardedFrames(self, startTime, endTime, timestamps):
         if len(timestamps) == 0: return
