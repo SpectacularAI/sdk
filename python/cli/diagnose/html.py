@@ -186,7 +186,9 @@ def generateHtml(output, outputHtml):
             summary.append({
                 "id": f"camera_{camera['ind']}",
                 "title": f"Camera #{camera['ind']}",
-                "value": f"{camera['frequency']:.1f} Hz, {camera['count']} frames"
+                "value": '{:.1f} Hz<span style="color: gray">, {} frames</span>'.format(
+                    camera["frequency"],
+                    camera["count"])
             })
 
     SENSOR_NAMES = ["accelerometer", "gyroscope", "magnetometer", "barometer", "GNSS", "CPU", "VIO"]
@@ -196,7 +198,9 @@ def generateHtml(output, outputHtml):
             "id": sensor.lower(),
             "title": sensor.capitalize() if sensor.islower() else sensor,
             "value": 'No data' if output[sensor]["count"] == 0 else
-                f"{output[sensor]['frequency']:.1f} Hz, {output[sensor]['count']} samples"
+                '{:.1f} Hz<span style="color: gray">, {} samples</span>'.format(
+                    output[sensor]["frequency"],
+                    output[sensor]["count"])
         })
 
     s += summaryTable(summary)
