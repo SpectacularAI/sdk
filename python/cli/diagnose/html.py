@@ -74,11 +74,18 @@ TAIL = "</body>\n</html>"
 
 def h1(title): return f"<h1>{title}</h1>\n"
 def h2(title): return f"<h2>{title}</h2>\n"
+def h2withId(title, sectionId): return f"<h2 id={sectionId}>{title}</h2>\n"
 def p(text, size="16px"): return f'<p style="font-size:{size}; font-weight:normal">{text}</p>\n'
-def summaryTable(pairs):
+def summaryTable(summary):
     s = '<table class="summary-table">\n'
-    for key, value in pairs:
-        s += '<tr class="summary-row"><td class="key">%s</td><td class="value">%s</td>\n' % (key, value)
+    for item in summary:
+        key, value, id = item["title"], item["value"], item["id"]
+        s += '<tr class="summary-row">'
+        if id is None:
+            s += f'<td class="key">{key}</td>'
+        else:
+            s += f'<td class="key"><a href="#{id}">{key}</a></td>'
+        s += f'<td class="value">{value}</td>\n'
     s += "</table>\n"
     return s
 def issueTable(issues):
@@ -135,10 +142,10 @@ def status(sensor):
         raise ValueError(f"Unknown diagnosis: {diagnosis}")
     return s
 
-def generateSensor(sensor, name):
+def generateSensor(sensor, name, id):
     s = ""
     s += "<section>\n"
-    s += h2("{} {}".format(name, status(sensor)))
+    s += h2withId("{} {}".format(name, status(sensor)), id)
     if len(sensor["issues"]) > 0:
         s += issueTable(sensor["issues"])
     for image in sensor["images"]:
@@ -150,34 +157,49 @@ def generateHtml(output, outputHtml):
     s = HEAD
     s += h1("Dataset report")
     s += '<section>\n'
-    kvPairs = [
-        ('Outcome', passed(output["passed"], large=False)),
-        ('Date', output['date']),
-        ('Dataset', output["dataset_path"])
-    ]
+
+    summary = []
+    summary.append({
+        "id": None,
+        "title": "Outcome",
+        "value": passed(output["passed"], large=False)
+    })
+    summary.append({
+        "id": None,
+        "title": "Date",
+        "value": output['date']
+    })
+    summary.append({
+        "id": None,
+        "title": "Dataset",
+        "value": output["dataset_path"]
+    })
 
     if len(output["cameras"]) == 0:
-        kvPairs.append(('Cameras', 'No data'))
+        summary.append({
+            "id": None,
+            "title": "Cameras",
+            "value": "No data"
+        })
     else:
         for camera in output["cameras"]:
-            kvPairs.append((
-                'Camera #{}'.format(camera["ind"]),
-                '{:.1f} Hz<span style="color: gray">, {} frames</span>'.format(
-                    camera["frequency"],
-                    camera["count"])))
+            summary.append({
+                "id": f"camera_{camera['ind']}",
+                "title": f"Camera #{camera['ind']}",
+                "value": f"{camera['frequency']:.1f} Hz, {camera['count']} frames"
+            })
 
     SENSOR_NAMES = ["accelerometer", "gyroscope", "magnetometer", "barometer", "GNSS", "CPU", "VIO"]
     for sensor in SENSOR_NAMES:
         if sensor not in output: continue
-        kvPairs.append((
-            sensor.capitalize() if sensor.islower() else sensor,
-            'No data' if output[sensor]["count"] == 0 else
-            '{:.1f} Hz<span style="color: gray">, {} samples</span>'.format(
-                output[sensor]["frequency"],
-                output[sensor]["count"]
-            )))
+        summary.append({
+            "id": sensor.lower(),
+            "title": sensor.capitalize() if sensor.islower() else sensor,
+            "value": 'No data' if output[sensor]["count"] == 0 else
+                f"{output[sensor]['frequency']:.1f} Hz, {output[sensor]['count']} samples"
+        })
 
-    s += summaryTable(kvPairs)
+    s += summaryTable(summary)
     if not output["passed"]: s += p("One or more checks below failed.")
     s += '</section>\n'
 
@@ -187,18 +209,18 @@ def generateHtml(output, outputHtml):
             "issues": [{"message": "Missing camera(s).", "diagnosis": "error"}],
             "images": []
         }
-        s += generateSensor(camera, "Camera")
+        s += generateSensor(camera, "Camera", 'missing_camera')
     else:
         for camera in output["cameras"]:
-            s += generateSensor(camera, 'Camera #{}'.format(camera["ind"]))
+            s += generateSensor(camera, 'Camera #{}'.format(camera["ind"]), f"camera_{camera['ind']}")
 
     if output.get("discardedFrames"):
-        s += generateSensor(output.get("discardedFrames"), 'Cameras')
+        s += generateSensor(output.get("discardedFrames"), 'Cameras', 'discarded_frames')
 
     for sensor in SENSOR_NAMES:
         if sensor not in output: continue
         name = sensor.capitalize() if sensor.islower() else sensor
-        s += generateSensor(output[sensor], name)
+        s += generateSensor(output[sensor], name, sensor.lower())
 
     s += TAIL
 
