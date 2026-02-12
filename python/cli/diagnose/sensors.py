@@ -136,6 +136,7 @@ class Status:
             self,
             timestamps,
             deltaTimes,
+            arrivalTimes,
             imuTimestamps,
             minFrequencyHz,
             maxFrequencyHz,
@@ -247,6 +248,18 @@ class Status:
                     "This indicates that either the sensor was stopped much later than IMU "
                     "or there could be a time offset between the sensor and IMU clocks.")
 
+        if not np.isnan(arrivalTimes).any():
+            arrivalTimeDeltas = np.diff(arrivalTimes)
+            self.images.append(plotFrame(
+                timestamps[1:],
+                arrivalTimeDeltas * SECONDS_TO_MILLISECONDS,
+                "Arrival time deltas",
+                plottype="scatter",
+                xLabel="Time (s)",
+                yLabel="Time diff (ms)",
+                yScale="symlog" if dataGaps > 0 else None,
+                s=10))
+
     def analyzeDiscardedFrames(self, startTime, endTime, timestamps):
         if len(timestamps) == 0: return
         self.images.append(plotDiscardedFrames(startTime, endTime, timestamps))
@@ -256,7 +269,6 @@ class Status:
             f"alleviate this issue with larger in-memory buffer when recording using FFMpeg. "
             f"In <i>vio_config.yaml</i>: <i>ffmpegWriteBufferCapacityMegabytes: 50</i>"
         )
-
 
     def analyzeArrivalTimes(
             self,
@@ -821,6 +833,7 @@ def diagnoseCamera(data, output):
         camera = sensor[ind]
         timestamps = np.array(camera["t"])
         deltaTimes = np.array(camera["td"])
+        arrivalTimes = np.array(camera["at"])
 
         if len(timestamps) == 0: continue
 
@@ -831,6 +844,7 @@ def diagnoseCamera(data, output):
         status.analyzeTimestamps(
             timestamps,
             deltaTimes,
+            arrivalTimes,
             getImuTimestamps(data),
             CAMERA_MIN_FREQUENCY_HZ,
             CAMERA_MAX_FREQUENCY_HZ,
@@ -888,6 +902,7 @@ def diagnoseAccelerometer(data, output):
     sensor = data["accelerometer"]
     timestamps = np.array(sensor["t"])
     deltaTimes = np.array(sensor["td"])
+    arrivalTimes = np.array(sensor["at"])
     signal = np.array(sensor['v'])
 
     if len(timestamps) == 0:
@@ -913,6 +928,7 @@ def diagnoseAccelerometer(data, output):
     status.analyzeTimestamps(
         timestamps,
         deltaTimes,
+        arrivalTimes,
         getImuTimestamps(data),
         ACC_MIN_FREQUENCY_HZ,
         ACC_MAX_FREQUENCY_HZ,
@@ -961,6 +977,7 @@ def diagnoseGyroscope(data, output):
     sensor = data["gyroscope"]
     timestamps = np.array(sensor["t"])
     deltaTimes = np.array(sensor["td"])
+    arrivalTimes = np.array(sensor["at"])
     signal = np.array(sensor['v'])
 
     if len(timestamps) == 0:
@@ -984,6 +1001,7 @@ def diagnoseGyroscope(data, output):
     status.analyzeTimestamps(
         timestamps,
         deltaTimes,
+        arrivalTimes,
         getImuTimestamps(data),
         GYRO_MIN_FREQUENCY_HZ,
         GYRO_MAX_FREQUENCY_HZ,
@@ -1024,6 +1042,7 @@ def diagnoseMagnetometer(data, output):
     sensor = data["magnetometer"]
     timestamps = np.array(sensor["t"])
     deltaTimes = np.array(sensor["td"])
+    arrivalTimes = np.array(sensor["at"])
     signal = np.array(sensor['v'])
 
     if len(timestamps) == 0: return
@@ -1032,6 +1051,7 @@ def diagnoseMagnetometer(data, output):
     status.analyzeTimestamps(
         timestamps,
         deltaTimes,
+        arrivalTimes,
         getImuTimestamps(data),
         MAGN_MIN_FREQUENCY_HZ,
         MAGN_MAX_FREQUENCY_HZ,
@@ -1075,6 +1095,7 @@ def diagnoseBarometer(data, output):
     sensor = data["barometer"]
     timestamps = np.array(sensor["t"])
     deltaTimes = np.array(sensor["td"])
+    arrivalTimes = np.array(sensor["at"])
     pressure = np.array(sensor["pressure"])
     temperature = np.array(sensor["temperature"])
     if np.all(np.isnan(temperature)): temperature = None
@@ -1085,6 +1106,7 @@ def diagnoseBarometer(data, output):
     status.analyzeTimestamps(
         timestamps,
         deltaTimes,
+        arrivalTimes,
         getImuTimestamps(data),
         BARO_MIN_FREQUENCY_HZ,
         BARO_MAX_FREQUENCY_HZ,
@@ -1120,6 +1142,7 @@ def diagnoseGNSS(data, output):
     sensor = data["gnss"]
     timestamps = np.array(sensor["t"])
     deltaTimes = np.array(sensor["td"])
+    arrivalTimes = np.array(sensor["at"])
 
     if len(timestamps) == 0: return
 
@@ -1127,6 +1150,7 @@ def diagnoseGNSS(data, output):
     status.analyzeTimestamps(
         timestamps,
         deltaTimes,
+        arrivalTimes,
         getImuTimestamps(data),
         GNSS_MIN_FREQUENCY_HZ,
         GNSS_MAX_FREQUENCY_HZ,
@@ -1215,6 +1239,7 @@ def diagnoseVIO(data, output):
     vio = data["vio"]
     timestamps = np.array(vio["t"])
     deltaTimes = np.array(vio["td"])
+    arrivalTimes = np.array(vio["at"])
     trackingStatus = np.array(vio["status"])
     position = np.array(vio["position"])
     hasGlobalOutput = len(vio["global"]["position"]) > 0
@@ -1229,6 +1254,7 @@ def diagnoseVIO(data, output):
     status.analyzeTimestamps(
         timestamps,
         deltaTimes,
+        arrivalTimes,
         getImuTimestamps(data),
         VIO_MIN_FREQUENCY_HZ,
         VIO_MAX_FREQUENCY_HZ,

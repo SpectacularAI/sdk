@@ -39,12 +39,13 @@ def generateReport(args):
     }
 
     data = {
-        'accelerometer': {"v": [], "t": [], "td": []},
-        'gyroscope': {"v": [], "t": [], "td": []},
-        'magnetometer': {"v": [], "t": [], "td": []},
+        'accelerometer': {"v": [], "t": [], "td": [], "at": []},
+        'gyroscope': {"v": [], "t": [], "td": [], "at": []},
+        'magnetometer': {"v": [], "t": [], "td": [], "at": []},
         'barometer': {
             "t": [],
             "td": [],
+            "at": [],
             "pressure": [], # Hectopascals
             "temperature": []  # Kelvins (optional)
         },
@@ -54,6 +55,7 @@ def generateReport(args):
             "color": "darkred",
             "t": [],
             "td": [],
+            "at": [],
             "position": [], # ENU
             "altitude": []  # WGS-84
         },
@@ -62,10 +64,11 @@ def generateReport(args):
             "color": "tab:orange",
             "t": [],
             "td": [],
+            "at": [],
             "position": [], # ENU
             "altitude": []  # WGS-84
         },
-        'vio': {"t": [], "td": [], "status": [], "position": [], "global": {
+        'vio': {"t": [], "td": [], "at": [], "status": [], "position": [], "global": {
             "position": [], # ENU
             "velocity": [], # ENU
             "altitude": []  # WGS-84
@@ -74,13 +77,14 @@ def generateReport(args):
         'discardedFrames': []
     }
 
-    def addMeasurement(type, t, v):
+    def addMeasurement(type, t, v, arrivalTime):
         assert type in data, f"Unknown sensor type: {type}"
         sensorData = data[type]
         sensorData['v'].append(v)
         if len(sensorData["t"]) > 0:
             diff = t - sensorData["t"][-1]
             sensorData["td"].append(diff)
+        sensorData["at"].append(arrivalTime)
         sensorData["t"].append(t)
 
     startTime = None
@@ -99,6 +103,7 @@ def generateReport(args):
                 print(f"Warning: ignoring non JSON line: '{line}'")
                 continue
             time = measurement.get("time")
+            arrivalTime = measurement.get("arrivalTime", np.nan)
             sensor = measurement.get("sensor")
             barometer = measurement.get("barometer")
             frames = measurement.get("frames")
@@ -144,6 +149,7 @@ def generateReport(args):
                     diff = t - gnssData["t"][-1]
                     gnssData["td"].append(diff)
                 gnssData["t"].append(t)
+                gnssData["at"].append(arrivalTime)
                 enu = gnssConverter.enu(gnss["latitude"], gnss["longitude"], gnss["altitude"])
                 gnssData["position"].append([enu[c] for c in "xyz"])
                 gnssData["altitude"].append(gnss["altitude"])
@@ -153,7 +159,7 @@ def generateReport(args):
                 measurementType = sensor["type"]
                 if measurementType in ["accelerometer", "gyroscope", "magnetometer"]:
                     v = [sensor["values"][i] for i in range(3)]
-                    addMeasurement(measurementType, t, v)
+                    addMeasurement(measurementType, t, v, arrivalTime)
                     if measurementType == "gyroscope":
                         latestGyroTime = t
                         for f in framesMissingNextGyroTime:
@@ -168,6 +174,7 @@ def generateReport(args):
                     diff = t - barometerData["t"][-1]
                     barometerData["td"].append(diff)
                 barometerData["t"].append(t)
+                barometerData["at"].append(arrivalTime)
 
             elif gnss is not None:
                 convertGnss(gnss, data["gnss"])
@@ -182,12 +189,13 @@ def generateReport(args):
                     cameras = data['cameras']
                     ind = f["cameraInd"]
                     if cameras.get(ind) is None:
-                        cameras[ind] = {"td": [], "t": [], "features": [], "gyroTimeDeltas": []}
+                        cameras[ind] = {"td": [], "t": [], "at": [], "features": [], "gyroTimeDeltas": []}
                     else:
                         diff = t - cameras[ind]["t"][-1]
                         cameras[ind]["td"].append(diff)
                     if "features" in f: cameras[ind]["features"].append(0 if not f["features"] else len(f["features"]))
                     cameras[ind]["t"].append(t)
+                    cameras[ind]["at"].append(arrivalTime)
                     gyroTimeDeltas = {
                         "prev": abs(latestGyroTime - t) if latestGyroTime != None else None,
                         "next": None,
@@ -197,7 +205,7 @@ def generateReport(args):
                     framesMissingNextGyroTime.append(gyroTimeDeltas)
 
             elif metrics is not None and 'cpu' in metrics:
-                addMeasurement("cpu", t, metrics['cpu'].get('systemTotalUsagePercent', 0))
+                addMeasurement("cpu", t, metrics['cpu'].get('systemTotalUsagePercent', 0), arrivalTime)
                 usedProcessNames = {}  # Track duplicate process names
                 for process in metrics['cpu'].get('processes', []):
                     name = process.get('name')
@@ -215,6 +223,7 @@ def generateReport(args):
                     diff = t - vio["t"][-1]
                     vio["td"].append(diff)
                 vio["t"].append(t)
+                vio["at"].append(arrivalTime)
                 vio["status"].append(vioOutput["status"])
                 vio["position"].append([vioOutput["position"][c] for c in "xyz"])
                 if "globalPose" in vioOutput:
