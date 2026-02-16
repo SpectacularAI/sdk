@@ -86,6 +86,7 @@ def generateReport(args):
     startTime = None
     timeOffset = 0
     latestGyroTime = None
+    recordingSdkVersion = None
     gnssConverter = GnssConverter()
 
     framesMissingNextGyroTime = []
@@ -98,6 +99,11 @@ def generateReport(args):
             except:
                 print(f"Warning: ignoring non JSON line: '{line}'")
                 continue
+
+            if not recordingSdkVersion and "sdkVersion" in measurement:
+                recordingSdkVersion = measurement["sdkVersion"]
+                continue
+
             time = measurement.get("time")
             sensor = measurement.get("sensor")
             barometer = measurement.get("barometer")
@@ -249,7 +255,7 @@ def generateReport(args):
 
     if os.path.dirname(args.output_html):
         os.makedirs(os.path.dirname(args.output_html), exist_ok=True)
-    generateHtml(output, args.output_html)
+    generateHtml(output, args.output_html, args.sdk_version, recordingSdkVersion)
     print("Generated HTML report at:", args.output_html)
 
 if __name__ == '__main__':

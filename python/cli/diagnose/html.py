@@ -153,7 +153,7 @@ def generateSensor(sensor, name, id):
     s += "</section>\n"
     return s
 
-def generateHtml(output, outputHtml):
+def generateHtml(output, outputHtml, diagnoseSdkVersion, recordingSdkVersion):
     s = HEAD
     s += h1("Dataset report")
     s += '<section>\n'
@@ -225,6 +225,9 @@ def generateHtml(output, outputHtml):
         if sensor not in output: continue
         name = sensor.capitalize() if sensor.islower() else sensor
         s += generateSensor(output[sensor], name, sensor.lower())
+
+    if diagnoseSdkVersion: s += p(f"Diagnose SDK version: {diagnoseSdkVersion}")
+    if recordingSdkVersion: s += p(f"Recording SDK version: {recordingSdkVersion}")
 
     s += TAIL
 
