@@ -31,7 +31,9 @@ def parse_args():
     convert_define_subparser(subparsers)
     diagnose_define_subparser(subparsers)
     frd_define_subparser(subparsers)
-    return parser.parse_args()
+    args = parser.parse_args()
+    args.sdk_version = version
+    return args
 
 def main():
     try:

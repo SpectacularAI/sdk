@@ -8,7 +8,7 @@ def call_calibrate(args):
     output = run(convert_args(args))
     if output:
         from .report import report
-        report(args, output)
+        report(args, output, args.sdk_version)
 
 def define_subparser(subparsers):
     sub = subparsers.add_parser('calibrate', help=__doc__.strip())
