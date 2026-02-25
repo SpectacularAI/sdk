@@ -158,7 +158,8 @@ class Status:
             p = (value / total) * TO_PERCENT
             return f"{p:.1f}%"
 
-        medianDeltaTime = np.median(deltaTimes)
+        validDeltaTimes = deltaTimes[deltaTimes > 0]
+        medianDeltaTime = np.median(validDeltaTimes) if len(validDeltaTimes) > 0 else 0
         thresholdDeltaTimeWarning = WARNING_RELATIVE_DELTA_TIME * medianDeltaTime
         thresholdDataGap = max(MIN_DATA_GAP_SECONDS, DATA_GAP_RELATIVE_DELTA_TIME * medianDeltaTime)
 
@@ -805,8 +806,9 @@ def getImuTimestamps(data):
     return data["accelerometer"]["t"]
 
 def computeSamplingRate(deltaTimes):
-    if len(deltaTimes) == 0: return 0
-    return 1.0 / np.median(deltaTimes)
+    validDeltaTimes = deltaTimes[deltaTimes > 0]
+    if len(validDeltaTimes) == 0: return 0
+    return 1.0 / np.median(validDeltaTimes)
 
 def diagnoseCamera(data, output):
     CAMERA_MIN_FREQUENCY_HZ = 1.0
