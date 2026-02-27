@@ -3,7 +3,6 @@ Calibrate device Front-Right-Down orientation.
 """
 
 import spectacularAI
-import cv2
 import numpy as np
 import os
 import json
@@ -47,6 +46,7 @@ def define_subparser(subparsers):
 
 
 def draw_rectigle(img, pixel, color):
+    import cv2
     x, y = pixel
     CROSSHAIR_SIZE = 15
     CENTER_GAP = 2
@@ -92,6 +92,8 @@ class RayApp:
         """
         Callback function that gets called for each VIO output from the replay.
         """
+        import cv2
+
         if self.should_quit:
             self.replay.close()
             return
