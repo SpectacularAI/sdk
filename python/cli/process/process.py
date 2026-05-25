@@ -132,7 +132,7 @@ def interpolate_missing_properties(df_source, df_query, k_nearest=3):
     _, ii = tree.query(df_query[xyz], k=k_nearest)
     n = df_query.shape[0]
 
-    df_result = pd.DataFrame(0, index=range(n), columns=df_source.columns)
+    df_result = pd.DataFrame(0.0, index=range(n), columns=df_source.columns)
     df_result[xyz] = df_query[xyz]
     other_cols = [c for c in df_source.columns if c not in xyz]
 
