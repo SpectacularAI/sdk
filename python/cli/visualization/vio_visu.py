@@ -97,7 +97,7 @@ def make_plotter():
         return (vio_plot[0],)
 
     from matplotlib.animation import FuncAnimation
-    anim = FuncAnimation(fig, update_graph, interval=15, blit=True)
+    anim = FuncAnimation(fig, update_graph, interval=15, blit=False, cache_frame_data=False)
     return update_data, anim
 
 if __name__ == '__main__':
